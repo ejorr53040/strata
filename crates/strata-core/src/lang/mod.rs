@@ -129,8 +129,21 @@ pub struct Ref {
     pub kind: EdgeKind,
 }
 
+/// A DOM lookup in script code (`document.querySelector('.x')`, `el.classList.add('x')`),
+/// with what it targets as a CSS selector.
+#[derive(Debug, Clone)]
+pub struct DomRef {
+    pub enclosing: Option<String>,
+    /// The DOM method, `classList.` prefixed for class-list operations.
+    pub call: String,
+    /// The selector, or the argument expression as written when it is built at runtime.
+    pub selector: Result<String, String>,
+    pub line: usize,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct FileFacts {
+    pub dom: Vec<DomRef>,
     pub bindings: Vec<Binding>,
     pub refs: Vec<Ref>,
     pub defs: Vec<Def>,

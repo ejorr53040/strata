@@ -80,6 +80,29 @@ pub struct Markup {
     /// Per HTML file, `<link rel=stylesheet>` hrefs (resolved after every sheet is known)
     /// interleaved with inline `<style>` sheets.
     page_refs: Vec<(String, SheetRef)>,
+    /// Per HTML file, `<script src>` values.
+    page_scripts: Vec<(String, String)>,
+    /// DOM lookups in script files: (script path, caller id, lookup).
+    dom: Vec<(String, String, crate::lang::DomRef)>,
+}
+
+/// A DOM lookup in script code and what it reaches.
+#[derive(Debug, Serialize)]
+pub struct SelectorRef {
+    pub caller: String,
+    pub call: String,
+    pub selector: Option<String>,
+    /// `resolved` for a literal selector (its matches may be empty: the element can be built
+    /// by script), `unresolved` when the selector is built at runtime.
+    pub state: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub path: String,
+    pub line: usize,
+    /// `path:line` of each element it can match on the pages that load the script.
+    pub elements: Vec<String>,
+    /// `path:line selector` of each rule that mentions the class, id or tag it targets.
+    pub rules: Vec<String>,
 }
 
 /// Cascade precedence of a matching rule: specificity, then the page's sheet order, then
@@ -97,6 +120,17 @@ pub fn build(sources: &[Source]) -> Markup {
     for s in sources.iter().filter(|s| is_css(&s.path)) {
         let sheet = m.add_sheet(&s.path);
         m.parse_css(&s.text, &s.path, sheet, 0);
+    }
+    for s in sources {
+        let Some(lang) = crate::lang::for_path(&s.path) else {
+            continue;
+        };
+        let module = lang.module_name(&s.path);
+        for d in lang.extract(&s.path, &s.text).dom {
+            let caller =
+                crate::graph::qualify(&module, d.enclosing.as_deref().unwrap_or("<module>"));
+            m.dom.push((s.path.clone(), caller, d));
+        }
     }
     for s in sources.iter().filter(|s| is_html(&s.path)) {
         let mut parser = Parser::new();
@@ -206,51 +240,14 @@ impl Markup {
         }
     }
 
-    /// `base.css`, `../css/x.css`, `/static/x.css` or Jinja's
-    /// `{{ url_for('static', filename='x.css') }}`: the path relative to the page when it is
-    /// indexed, else every indexed stylesheet with that file name.
     fn resolve_href(&self, page: &str, href: &str) -> Vec<usize> {
-        let href = match href.split_once("filename=") {
-            Some((_, rest)) => rest
-                .trim_start_matches(['\'', '"'])
-                .split(['\'', '"'])
-                .next()
-                .unwrap_or_default(),
-            None => href.split(['?', '#']).next().unwrap_or_default(),
-        };
-        if href.contains("://") || href.starts_with("//") {
-            return Vec::new();
-        }
-        let dir = page.rsplit_once('/').map_or("", |(d, _)| d);
-        let mut parts: Vec<&str> = if href.starts_with('/') {
-            Vec::new()
-        } else {
-            dir.split('/').filter(|p| !p.is_empty()).collect()
-        };
-        for seg in href.split('/') {
-            match seg {
-                "" | "." => {}
-                ".." => {
-                    parts.pop();
-                }
-                s => parts.push(s),
-            }
-        }
-        let rel = parts.join("/");
-        let css = |i: &usize| is_css(&self.sheets[*i]);
-        if let Some(i) = (0..self.sheets.len())
-            .filter(css)
-            .find(|&i| self.sheets[i] == rel)
-        {
-            return vec![i];
-        }
-        let file = href.rsplit('/').next().unwrap_or(href);
-        (0..self.sheets.len())
-            .filter(css)
-            .filter(|&i| {
-                let p = &self.sheets[i];
-                p == file || p.ends_with(&format!("/{file}"))
-            })
+        let css: Vec<usize> = (0..self.sheets.len())
+            .filter(|&i| is_css(&self.sheets[i]))
+            .collect();
+        let paths: Vec<&str> = css.iter().map(|&i| self.sheets[i].as_str()).collect();
+        resolve_ref(page, href, &paths)
+            .into_iter()
+            .map(|k| css[k])
             .collect()
     }
 
@@ -322,10 +319,93 @@ impl Markup {
         out
     }
 
-    /// Rules whose selector matches no element on any page that loads their stylesheet.
+    /// Pages whose `<script src>` loads `script`, or every page when none does.
+    fn pages_loading(&self, script: &str) -> Vec<&str> {
+        let loading: Vec<&str> = self
+            .page_scripts
+            .iter()
+            .filter(|(page, src)| resolve_ref(page, src, &[script]) == [0])
+            .map(|(page, _)| page.as_str())
+            .collect();
+        if loading.is_empty() {
+            self.pages.keys().map(String::as_str).collect()
+        } else {
+            loading
+        }
+    }
+
+    /// DOM lookups in script code (only in `path` when given), each linked to the elements and
+    /// rules it reaches.
+    pub fn selector_refs(&self, path: Option<&str>) -> Vec<SelectorRef> {
+        let mut out = Vec::new();
+        for (script, caller, d) in &self.dom {
+            if path.is_some_and(|p| p != script) {
+                continue;
+            }
+            let mut r = SelectorRef {
+                caller: caller.clone(),
+                call: d.call.clone(),
+                selector: None,
+                state: "unresolved",
+                reason: None,
+                path: script.clone(),
+                line: d.line,
+                elements: Vec::new(),
+                rules: Vec::new(),
+            };
+            let sel = match &d.selector {
+                Ok(s) => s,
+                Err(expr) => {
+                    r.reason = Some(format!("selector built at runtime: `{expr}`"));
+                    out.push(r);
+                    continue;
+                }
+            };
+            r.selector = Some(sel.clone());
+            let parsed: Vec<Selector> = split_list(sel).iter().filter_map(|s| parse(s)).collect();
+            if parsed.is_empty() {
+                r.reason = Some(format!("cannot read selector `{sel}`"));
+                out.push(r);
+                continue;
+            }
+            r.state = "resolved";
+            let pages = self.pages_loading(script);
+            for (i, e) in self.elements.iter().enumerate() {
+                if pages.contains(&e.path.as_str()) && parsed.iter().any(|s| self.matches(s, i)) {
+                    r.elements.push(format!("{}:{}", e.path, e.line));
+                }
+            }
+            let sheets: Vec<usize> = pages.iter().flat_map(|p| self.sheets_of(p)).collect();
+            let targets: Vec<&Compound> =
+                parsed.iter().filter_map(|s| s.compounds.last()).collect();
+            for rule in &self.rules {
+                if !sheets.contains(&rule.sheet) {
+                    continue;
+                }
+                let Some(rs) = parse(&rule.selector) else {
+                    continue;
+                };
+                if targets
+                    .iter()
+                    .any(|t| rs.compounds.iter().any(|c| c.mentions(t)))
+                {
+                    r.rules
+                        .push(format!("{}:{} {}", rule.path, rule.line, rule.selector));
+                }
+            }
+            out.push(r);
+        }
+        out
+    }
+
+    /// Rules whose selector matches no element on any page that loads their stylesheet. An
+    /// element may also carry any class a script on its page adds (`classList.add/toggle`).
     pub fn unused_selectors(&self) -> Vec<Winner> {
-        let loaded: Vec<(&String, Vec<usize>)> =
-            self.pages.keys().map(|p| (p, self.sheets_of(p))).collect();
+        let loaded: Vec<(&String, Vec<usize>, Vec<String>)> = self
+            .pages
+            .keys()
+            .map(|p| (p, self.sheets_of(p), self.scripted_classes(p)))
+            .collect();
         self.rules
             .iter()
             .filter(|r| {
@@ -333,10 +413,11 @@ impl Markup {
                     return false;
                 };
                 !self.elements.iter().enumerate().any(|(i, e)| {
-                    loaded
-                        .iter()
-                        .any(|(p, sheets)| **p == e.path && sheets.contains(&r.sheet))
-                        && self.matches(&sel, i)
+                    loaded.iter().any(|(p, sheets, scripted)| {
+                        **p == e.path
+                            && sheets.contains(&r.sheet)
+                            && self.match_from(&sel, sel.compounds.len() - 1, i, scripted)
+                    })
                 })
             })
             .map(|r| Winner {
@@ -344,6 +425,21 @@ impl Markup {
                 path: r.path.clone(),
                 line: r.line,
             })
+            .collect()
+    }
+
+    /// Classes the scripts loaded by `page` may add to its elements.
+    fn scripted_classes(&self, page: &str) -> Vec<String> {
+        self.dom
+            .iter()
+            .filter(|(script, _, d)| {
+                matches!(
+                    d.call.as_str(),
+                    "classList.add" | "classList.toggle" | "classList.replace"
+                ) && self.pages_loading(script).contains(&page)
+            })
+            .filter_map(|(_, _, d)| d.selector.as_ref().ok())
+            .filter_map(|s| s.strip_prefix('.').map(str::to_string))
             .collect()
     }
 
@@ -360,37 +456,37 @@ impl Markup {
     }
 
     fn matches(&self, sel: &Selector, el: usize) -> bool {
-        self.match_from(sel, sel.compounds.len() - 1, el)
+        self.match_from(sel, sel.compounds.len() - 1, el, &[])
     }
 
     /// Does `sel.compounds[..=k]` match with compound `k` on element `el`? Right to left.
-    fn match_from(&self, sel: &Selector, k: usize, el: usize) -> bool {
-        if !self.compound(&sel.compounds[k], el) {
+    /// `scripted` classes count as present on every element.
+    fn match_from(&self, sel: &Selector, k: usize, el: usize, scripted: &[String]) -> bool {
+        if !self.compound(&sel.compounds[k], el, scripted) {
             return false;
         }
         if k == 0 {
             return true;
         }
         let e = &self.elements[el];
+        let up = |i: usize| self.match_from(sel, k - 1, i, scripted);
         match sel.combinators[k - 1] {
-            Comb::Child => e.parent.is_some_and(|p| self.match_from(sel, k - 1, p)),
+            Comb::Child => e.parent.is_some_and(up),
             Comb::Descendant => {
                 let mut p = e.parent;
                 while let Some(i) = p {
-                    if self.match_from(sel, k - 1, i) {
+                    if up(i) {
                         return true;
                     }
                     p = self.elements[i].parent;
                 }
                 false
             }
-            Comb::Adjacent => e
-                .prev_sibling
-                .is_some_and(|s| self.match_from(sel, k - 1, s)),
+            Comb::Adjacent => e.prev_sibling.is_some_and(up),
             Comb::Sibling => {
                 let mut s = e.prev_sibling;
                 while let Some(i) = s {
-                    if self.match_from(sel, k - 1, i) {
+                    if up(i) {
                         return true;
                     }
                     s = self.elements[i].prev_sibling;
@@ -400,13 +496,16 @@ impl Markup {
         }
     }
 
-    fn compound(&self, c: &Compound, el: usize) -> bool {
+    fn compound(&self, c: &Compound, el: usize, scripted: &[String]) -> bool {
         let e = &self.elements[el];
         c.tag.as_ref().is_none_or(|t| t == "*" || *t == e.tag)
             && c.ids.iter().all(|id| e.id.as_deref() == Some(id))
-            && c.classes.iter().all(|cl| e.classes.contains(cl))
+            && c.classes
+                .iter()
+                .all(|cl| e.classes.contains(cl) || scripted.contains(cl))
             && c.attrs.iter().all(|a| a.matches(&e.attrs))
-            && c.nots.iter().all(|n| !self.compound(n, el))
+            // A scripted class may be absent too, so `:not(.x)` still can match.
+            && c.nots.iter().all(|n| !self.compound(n, el, &[]))
     }
 }
 
@@ -494,6 +593,11 @@ impl Html<'_> {
             r.split_whitespace()
                 .any(|t| t.eq_ignore_ascii_case("stylesheet"))
         });
+        if name == "script" {
+            if let Some(src) = get("src") {
+                self.out.page_scripts.push((self.path.to_string(), src));
+            }
+        }
         if name == "link" && is_sheet {
             if let Some(href) = get("href") {
                 self.out
@@ -531,6 +635,46 @@ impl Html<'_> {
         // Rows inside `text` start at 0; the first is on the `<style>` line itself.
         self.out.parse_css(&text, self.path, sheet, offset);
     }
+}
+
+/// `base.css`, `../css/x.css`, `/static/x.css` or Jinja's
+/// `{{ url_for('static', filename='x.css') }}`, as indices into `candidates`: the path relative
+/// to the page when it is indexed, else every candidate with that file name.
+fn resolve_ref(page: &str, href: &str, candidates: &[&str]) -> Vec<usize> {
+    let href = match href.split_once("filename=") {
+        Some((_, rest)) => rest
+            .trim_start_matches(['\'', '"'])
+            .split(['\'', '"'])
+            .next()
+            .unwrap_or_default(),
+        None => href.split(['?', '#']).next().unwrap_or_default(),
+    };
+    if href.is_empty() || href.contains("://") || href.starts_with("//") {
+        return Vec::new();
+    }
+    let dir = page.rsplit_once('/').map_or("", |(d, _)| d);
+    let mut parts: Vec<&str> = if href.starts_with('/') {
+        Vec::new()
+    } else {
+        dir.split('/').filter(|p| !p.is_empty()).collect()
+    };
+    for seg in href.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            s => parts.push(s),
+        }
+    }
+    let rel = parts.join("/");
+    if let Some(i) = candidates.iter().position(|c| *c == rel) {
+        return vec![i];
+    }
+    let file = href.rsplit('/').next().unwrap_or(href);
+    (0..candidates.len())
+        .filter(|&i| candidates[i] == file || candidates[i].ends_with(&format!("/{file}")))
+        .collect()
 }
 
 /// `card {% if x %}active{% endif %}` → `card  active `: the tags go, the words stay.
@@ -621,6 +765,19 @@ struct Selector {
 }
 
 impl Compound {
+    /// Does this compound name everything `target` names: its ids and classes, or its tag
+    /// when it names neither?
+    fn mentions(&self, target: &Compound) -> bool {
+        if target.ids.is_empty() && target.classes.is_empty() {
+            return target
+                .tag
+                .as_ref()
+                .is_some_and(|t| t != "*" && self.tag.as_ref() == Some(t));
+        }
+        target.ids.iter().all(|i| self.ids.contains(i))
+            && target.classes.iter().all(|c| self.classes.contains(c))
+    }
+
     fn specificity(&self) -> [u32; 3] {
         let tag = u32::from(self.tag.as_deref().is_some_and(|t| t != "*"));
         [

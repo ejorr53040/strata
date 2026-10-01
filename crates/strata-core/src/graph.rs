@@ -1001,7 +1001,7 @@ impl Index<'_> {
     }
 }
 
-fn qualify(module: &str, qualname: &str) -> String {
+pub fn qualify(module: &str, qualname: &str) -> String {
     if module.is_empty() {
         qualname.to_string()
     } else {

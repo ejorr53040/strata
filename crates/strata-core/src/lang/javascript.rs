@@ -1,4 +1,4 @@
-use super::{Call, Def, DefKind, FileFacts, Import, Language};
+use super::{Call, Def, DefKind, DomRef, FileFacts, Import, Language};
 use tree_sitter::{Node, Parser};
 
 pub struct Javascript;
@@ -155,6 +155,8 @@ impl State<'_> {
             "call_expression" => {
                 self.call(node, node.child_by_field_name("function"));
                 self.walk(node);
+                // After the walk, so `a.querySelector(..).classList.add(..)` lists the query first.
+                self.dom(node);
             }
             "new_expression" => {
                 self.call(node, node.child_by_field_name("constructor"));
@@ -188,6 +190,97 @@ impl State<'_> {
             local: false,
             recv_local: false,
         });
+    }
+
+    /// A DOM lookup whose argument names elements: see [`DomRef`].
+    fn dom(&mut self, node: Node) {
+        let Some(f) = node
+            .child_by_field_name("function")
+            .filter(|f| f.kind() == "member_expression")
+        else {
+            return;
+        };
+        let (Some(object), Some(prop)) = (
+            f.child_by_field_name("object"),
+            f.child_by_field_name("property"),
+        ) else {
+            return;
+        };
+        let method = self.text(prop);
+        let on_class_list = object.kind() == "member_expression"
+            && object
+                .child_by_field_name("property")
+                .is_some_and(|p| self.text(p) == "classList");
+        let to_selector: fn(&str) -> String = match method.as_str() {
+            "querySelector" | "querySelectorAll" | "closest" | "matches" if !on_class_list => {
+                |s| s.trim().to_string()
+            }
+            "getElementById" if !on_class_list => |s| format!("#{}", s.trim()),
+            "getElementsByClassName" if !on_class_list => {
+                |s| s.split_whitespace().map(|c| format!(".{c}")).collect()
+            }
+            "getElementsByTagName" if !on_class_list => |s| s.trim().to_lowercase(),
+            "add" | "remove" | "toggle" | "contains" | "replace" if on_class_list => {
+                |s| format!(".{}", s.trim())
+            }
+            _ => return,
+        };
+        let call = if on_class_list {
+            format!("classList.{method}")
+        } else {
+            method
+        };
+        let Some(args) = node.child_by_field_name("arguments") else {
+            return;
+        };
+        let mut c = args.walk();
+        let args: Vec<Node> = args.named_children(&mut c).collect();
+        // Class-list methods take class names (`toggle`'s second argument is a flag); the
+        // others take one selector.
+        let take = match call.as_str() {
+            "classList.add" | "classList.remove" => args.len(),
+            "classList.replace" => 2,
+            _ => 1,
+        };
+        let enclosing = self
+            .scope
+            .iter()
+            .rev()
+            .find(|s| s.1 == Scope::Func)
+            .map(|s| s.0.clone());
+        for arg in args.into_iter().take(take) {
+            let selector = self.literal(arg).map(|s| to_selector(&s)).ok_or_else(|| {
+                self.text(arg)
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            });
+            self.facts.dom.push(DomRef {
+                enclosing: enclosing.clone(),
+                call: call.clone(),
+                selector,
+                line: node.start_position().row + 1,
+            });
+        }
+    }
+
+    /// The value of a string literal or a template without substitutions.
+    fn literal(&self, node: Node) -> Option<String> {
+        match node.kind() {
+            "string" => Some(
+                self.text(node)
+                    .trim_matches(|c| c == '\'' || c == '"')
+                    .to_string(),
+            ),
+            "template_string" => {
+                let mut c = node.walk();
+                let dynamic = node
+                    .named_children(&mut c)
+                    .any(|n| n.kind() == "template_substitution");
+                (!dynamic).then(|| self.text(node).trim_matches('`').to_string())
+            }
+            _ => None,
+        }
     }
 
     /// A callee as a member chain with arguments elided: `document.querySelectorAll('.x').forEach`

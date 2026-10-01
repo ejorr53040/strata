@@ -103,3 +103,65 @@ fn unused_selectors_match_nothing_on_any_page_that_loads_them() {
         ])
     );
 }
+
+fn sref(line: usize, call: &str, selector: &str, elements: &[&str], rules: &[&str]) -> Value {
+    json!({
+        "caller": "site.app.wire", "call": call, "selector": selector, "state": "resolved",
+        "path": "site/app.js", "line": line, "elements": elements, "rules": rules
+    })
+}
+
+#[test]
+fn selector_refs_link_literal_dom_selectors_to_elements_and_rules() {
+    let card_rules = [
+        "site/base.css:2 .card",
+        "site/base.css:3 #main .card",
+        "site/base.css:4 .card.wide",
+        "site/theme.css:1 .card",
+        "site/theme.css:3 .card",
+        "site/theme.css:4 .card:hover",
+        "site/theme.css:5 .card.open",
+    ];
+    let runtime = |line: usize, call: &str, expr: &str| {
+        json!({
+            "caller": "site.app.wire", "call": call, "selector": null, "state": "unresolved",
+            "reason": format!("selector built at runtime: `{expr}`"),
+            "path": "site/app.js", "line": line, "elements": [], "rules": []
+        })
+    };
+    assert_eq!(
+        call("selector_refs", json!({"path": "site/app.js"})),
+        json!([
+            sref(
+                2,
+                "querySelector",
+                "#main .card",
+                &["site/index.html:12"],
+                &card_rules
+            ),
+            sref(
+                2,
+                "classList.add",
+                ".open",
+                &[],
+                &["site/theme.css:5 .card.open"]
+            ),
+            sref(
+                3,
+                "getElementById",
+                "#main",
+                &["site/index.html:11"],
+                &["site/base.css:3 #main .card"]
+            ),
+            sref(
+                4,
+                "querySelectorAll",
+                ".title",
+                &["site/index.html:13", "site/index.html:16"],
+                &["site/base.css:5 div > .title", "site/index.html:7 .title"]
+            ),
+            runtime(5, "querySelector", "'.' + name"),
+            runtime(6, "getElementsByClassName", "name"),
+        ])
+    );
+}

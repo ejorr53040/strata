@@ -77,6 +77,14 @@ pub fn catalog() -> Vec<Value> {
             "input_schema": none,
         }),
         json!({
+            "name": "selector_refs",
+            "description": "DOM lookups in JavaScript (querySelector(All), getElementById, getElementsByClassName/TagName, closest, matches, classList.*) linked to the HTML elements they can match on the pages whose <script src> loads the file, and the CSS rules that mention the class, id or tag they target. Selectors built at runtime are `unresolved` with the expression.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "Only lookups in this script file, e.g. `static/app.js`"}}
+            },
+        }),
+        json!({
             "name": "references",
             "description": "Every connection of any kind (call, and as depth grows: type use, value use, field, variant, impl, import) whose targets include the symbol.",
             "input_schema": sym("Fully qualified id or a unique dotted suffix"),
@@ -139,6 +147,12 @@ pub fn call(root: &Path, opts: &WalkOptions, name: &str, args: &Value) -> Result
         "unused_selectors" => Ok(json!(
             crate::markup::build(&graph::load_with(root, opts)).unused_selectors()
         )),
+        "selector_refs" => {
+            let m = crate::markup::build(&graph::load_with(root, opts));
+            Ok(json!(
+                m.selector_refs(args.get("path").and_then(Value::as_str))
+            ))
+        }
         "references" => {
             let g = graph::build(&graph::load_with(root, opts), &[]);
             Ok(json!(g.references(str_arg("symbol")?)))
