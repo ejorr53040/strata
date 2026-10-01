@@ -37,6 +37,9 @@ number and the chart below; see [Metrics](CLAUDE.md#metrics) for when to run it.
 | 2 | `c46e806` | agent tools + resolver fixes (reviewed) | 100.0% | 99.5% | 97.5% | 7 | 0 | 31 (11 / 11 / 9) |
 | 3 | `a924027` | crate-root mods + match-guard fixes | 100.0% | 100.0% | 100.0% | 0 | 0 | – |
 | 4 | `d3b8b09` | fixes for cirrocumulus gaps | 100.0% | 100.0% | 100.0% | 0 | 0 | – |
+| 5 | `7ffffdb` | depth 1-6 (all connection types) | 100.0% | 99.7% | 99.7% | 0 | 12 | – |
+| 6 | `7035f7a` | depth 6b: noise removed | 100.0% | 99.7% | 99.7% | 0 | 2 | – |
+| 7 | `2027020` | depth 6c: turbofish chains, #[path] mods | 100.0% | 100.0% | 100.0% | 0 | 2 | – |
 
 
 <!-- metrics:end -->
@@ -53,24 +56,42 @@ The same scoring on a repository outside strata. Run 1 is strata's first look at
 | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1 | `a924027` | `a8cf4eb` | baseline, before cirrocumulus fixes | 44.9% | 22.6% | 22.2% | 98.3% | 0 | 11 | – |
 | 2 | `d3b8b09` | `a8cf4eb` | gaps fixed: shadowing, globs, json macros, derives, turbofish, aliases, ioctl | 45.4% | 22.9% | 22.9% | 100.0% | 0 | 0 | – |
+| 3 | `0e25b63` | `a8cf4eb` | depth 1: type references | 45.4% | 45.0% | 45.0% | 100.0% | 0 | 23 | – |
+| 4 | `d7ccff3` | `a8cf4eb` | depth 1: type references (+ctors, turbofish, macros) | 45.4% | 47.4% | 47.4% | 100.0% | 0 | 29 | – |
+| 5 | `e7e8bd4` | `a8cf4eb` | depth 2: fn/const/static values | 56.7% | 52.8% | 52.8% | 100.0% | 0 | 29 | – |
+| 6 | `673eca5` | `a8cf4eb` | depth 3: fields + variant defs | 93.6% | 85.4% | 85.4% | 100.0% | 0 | 31 | – |
+| 7 | `db6c857` | `a8cf4eb` | depth 4: variant references | 93.6% | 87.8% | 87.8% | 100.0% | 0 | 31 | – |
+| 8 | `14c03bc` | `a8cf4eb` | depth 5: modules + imports | 100.0% | 93.3% | 93.3% | 100.0% | 0 | 31 | – |
+| 9 | `c6ce88e` | `a8cf4eb` | depth 5: modules + imports (+super, pub(crate)) | 100.0% | 97.6% | 97.6% | 100.0% | 0 | 31 | – |
+| 10 | `4cf3a98` | `a8cf4eb` | depth 5c: namespaces, local items, attribute paths | 100.0% | 98.9% | 98.9% | 100.0% | 0 | 33 | – |
+| 11 | `7ffffdb` | `a8cf4eb` | depth 6: long tail (shorthand locals, macros, inline modules) | 100.0% | 100.0% | 100.0% | 100.0% | 0 | 33 | – |
+| 12 | `7035f7a` | `a8cf4eb` | depth 6b: noise removed (0 unresolved) | 100.0% | 100.0% | 100.0% | 100.0% | 0 | 1 | – |
+| 13 | `2027020` | `a8cf4eb` | depth 6c: turbofish chains, #[path] mods | 100.0% | 100.0% | 100.0% | 100.0% | 0 | 1 | – |
 
-Latest run (`d3b8b09`) by connection type. *seen*: strata recorded a connection at that spot; *right*: and its targets include the correct definition.
+Latest run (`2027020`) by connection type. *seen*: strata recorded a connection at that spot; *right*: and its targets include the correct definition.
 
 | Connection | Total | Seen | Right |
 | --- | ---: | ---: | ---: |
-| reference: call | 456 | 100.0% | 100.0% |
-| reference: const | 112 | 0.0% | 0.0% |
-| reference: field | 609 | 0.0% | 0.0% |
-| reference: import | 122 | 0.0% | 0.0% |
-| reference: module | 105 | 0.0% | 0.0% |
-| reference: type | 462 | 0.0% | 0.0% |
-| reference: value | 16 | 0.0% | 0.0% |
-| reference: variant | 107 | 0.0% | 0.0% |
-| definition: const | 70 | 0.0% | – |
-| definition: field | 186 | 0.0% | – |
+| reference: call | 457 | 100.0% | 100.0% |
+| reference: const | 112 | 100.0% | 100.0% |
+| reference: field | 609 | 100.0% | 100.0% |
+| reference: import | 122 | 100.0% | 100.0% |
+| reference: module | 105 | 100.0% | 100.0% |
+| reference: type | 462 | 100.0% | 100.0% |
+| reference: value | 15 | 100.0% | 100.0% |
+| reference: variant | 107 | 100.0% | 100.0% |
+| definition: const | 70 | 100.0% | – |
+| definition: field | 186 | 100.0% | – |
 | definition: fn | 228 | 100.0% | – |
-| definition: module | 40 | 0.0% | – |
+| definition: module | 40 | 100.0% | – |
 | definition: type | 54 | 100.0% | – |
-| definition: variant | 43 | 0.0% | – |
+| definition: variant | 43 | 100.0% | – |
+
+
+Other commits of the corpus (code strata was never fixed against; not part of the series above):
+
+| strata | corpus | Definitions | References seen | References right | Calls right | Unresolved |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `8918708` | `13cb233` | 100.0% | 100.0% | 99.9% | 99.9% | 2 |
 
 <!-- metrics-cirrocumulus:end -->

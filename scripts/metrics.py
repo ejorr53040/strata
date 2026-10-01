@@ -39,6 +39,9 @@ CORPORA = {
     "cirrocumulus": {
         "title": "cirrocumulus (external corpus)",
         "path": Path(os.environ.get("CIRRO_PATH", Path.home() / "cs/cirrocumulus")),
+        # The commit the comparable series is scored on. Rows on other commits of the corpus
+        # are kept (they show how strata does on code it never saw) but listed apart.
+        "pin": "a8cf4eb",
     },
 }
 README = ROOT / "README.md"
@@ -698,6 +701,24 @@ def table_external(runs):
     return head + "\n".join(rows) + "\n"
 
 
+def other_table(others):
+    if not others:
+        return ""
+    out = (
+        "\nOther commits of the corpus (code strata was never fixed against; not part of the "
+        "series above):\n\n| strata | corpus | Definitions | References seen | References right "
+        "| Calls right | Unresolved |\n| --- | --- | ---: | ---: | ---: | ---: | ---: |\n"
+    )
+    for r in others:
+        sm = (r.get("depth") or {}).get("summary", {})
+        out += (
+            f"| `{r['rev']}` | `{r.get('corpus_rev', '')}` | {fmt(sm.get('defs'), True)} "
+            f"| {fmt(sm.get('refs_seen'), True)} | {fmt(sm.get('refs_right'), True)} "
+            f"| {fmt(r['recall']['target'], True)} | {r['edges'].get('unresolved', 0)} |\n"
+        )
+    return out + "\n"
+
+
 def depth_table(run):
     d = run.get("depth")
     if not d:
@@ -852,9 +873,12 @@ def chart(runs, title, review_panel=True, series=None):
     return "\n".join(out) + "\n"
 
 
-def render_corpus(corpus, runs):
+def render_corpus(corpus, all_runs):
     spec = CORPORA[corpus]
     external = spec["path"] is not None
+    pin = spec.get("pin")
+    runs = [r for r in all_runs if not pin or r.get("corpus_rev", "").startswith(pin[:7])] or all_runs
+    others = [r for r in all_runs if r not in runs]
     chart_path(corpus).parent.mkdir(parents=True, exist_ok=True)
     chart_path(corpus).write_text(
         chart(
@@ -877,7 +901,8 @@ def render_corpus(corpus, runs):
         )
     block = (
         f"{start}\n\n{intro}![{spec['title']} chart](docs/metrics/{chart_path(corpus).name})\n\n"
-        f"{table(runs, external)}\n{depth_table(runs[-1]) if external else ''}\n{end}"
+        f"{table(runs, external)}\n{depth_table(runs[-1]) if external else ''}\n"
+        f"{other_table(others)}{end}"
     )
     text = README.read_text()
     if start in text:
@@ -939,7 +964,8 @@ def main():
 
     if args.cmd == "run":
         runs = load(args.corpus)
-        rec = measure(args.rev, args.corpus, args.corpus_rev, args.label, args.verbose)
+        corpus_rev = args.corpus_rev or CORPORA[args.corpus].get("pin") or "HEAD"
+        rec = measure(args.rev, args.corpus, corpus_rev, args.label, args.verbose)
         rec["review"] = args.review
         key = lambda x: (x["rev"], x.get("corpus_rev"), x["label"])
         for i, old in enumerate(runs):

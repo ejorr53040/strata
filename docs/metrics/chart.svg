@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 500" width="760" height="500" role="img" aria-labelledby="t d">
 <title id="t">{title}: recall per run</title>
-<desc id="d">4 runs. Recall of symbols, call sites and call targets against rust-analyzer, and code-review finding counts. Values are in the table below the chart.</desc>
+<desc id="d">7 runs. Recall of symbols, call sites and call targets against rust-analyzer, and code-review finding counts. Values are in the table below the chart.</desc>
 <style>
 .bg{fill:#fcfcfb} text{font:12px system-ui,sans-serif;fill:#52514e} .h{font-weight:600;fill:#0b0b0b;font-size:13px}
 .v{fill:#0b0b0b;font-weight:600} .grid{stroke:#e4e3df;stroke-width:1} .ln{fill:none;stroke-width:2;stroke-linejoin:round}
@@ -28,37 +28,55 @@
 <text x="56" y="114.0" text-anchor="end">95</text>
 <line class="grid" x1="64" x2="640" y1="70.0" y2="70.0"/>
 <text x="56" y="74.0" text-anchor="end">100</text>
-<polyline class="ln s1" points="64.0,70.0 256.0,70.0 448.0,70.0 640.0,70.0"/>
+<polyline class="ln s1" points="64.0,70.0 160.0,70.0 256.0,70.0 352.0,70.0 448.0,70.0 544.0,70.0 640.0,70.0"/>
 <circle class="dot d1" cx="64.0" cy="70.0" r="4"><title>run 1 (b81eed0): Symbols recall 100.0%</title></circle>
-<circle class="dot d1" cx="256.0" cy="70.0" r="4"><title>run 2 (c46e806): Symbols recall 100.0%</title></circle>
-<circle class="dot d1" cx="448.0" cy="70.0" r="4"><title>run 3 (a924027): Symbols recall 100.0%</title></circle>
-<circle class="dot d1" cx="640.0" cy="70.0" r="4"><title>run 4 (d3b8b09): Symbols recall 100.0%</title></circle>
-<polyline class="ln s2" points="64.0,70.0 256.0,74.4 448.0,70.0 640.0,70.0"/>
+<circle class="dot d1" cx="160.0" cy="70.0" r="4"><title>run 2 (c46e806): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="256.0" cy="70.0" r="4"><title>run 3 (a924027): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="352.0" cy="70.0" r="4"><title>run 4 (d3b8b09): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="448.0" cy="70.0" r="4"><title>run 5 (7ffffdb): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="544.0" cy="70.0" r="4"><title>run 6 (7035f7a): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="640.0" cy="70.0" r="4"><title>run 7 (2027020): Symbols recall 100.0%</title></circle>
+<polyline class="ln s2" points="64.0,70.0 160.0,74.4 256.0,70.0 352.0,70.0 448.0,72.7 544.0,72.7 640.0,70.0"/>
 <circle class="dot d2" cx="64.0" cy="70.0" r="4"><title>run 1 (b81eed0): Call sites recall 100.0%</title></circle>
-<circle class="dot d2" cx="256.0" cy="74.4" r="4"><title>run 2 (c46e806): Call sites recall 99.5%</title></circle>
-<circle class="dot d2" cx="448.0" cy="70.0" r="4"><title>run 3 (a924027): Call sites recall 100.0%</title></circle>
-<circle class="dot d2" cx="640.0" cy="70.0" r="4"><title>run 4 (d3b8b09): Call sites recall 100.0%</title></circle>
-<polyline class="ln s3" points="64.0,145.7 256.0,89.8 448.0,70.0 640.0,70.0"/>
+<circle class="dot d2" cx="160.0" cy="74.4" r="4"><title>run 2 (c46e806): Call sites recall 99.5%</title></circle>
+<circle class="dot d2" cx="256.0" cy="70.0" r="4"><title>run 3 (a924027): Call sites recall 100.0%</title></circle>
+<circle class="dot d2" cx="352.0" cy="70.0" r="4"><title>run 4 (d3b8b09): Call sites recall 100.0%</title></circle>
+<circle class="dot d2" cx="448.0" cy="72.7" r="4"><title>run 5 (7ffffdb): Call sites recall 99.7%</title></circle>
+<circle class="dot d2" cx="544.0" cy="72.7" r="4"><title>run 6 (7035f7a): Call sites recall 99.7%</title></circle>
+<circle class="dot d2" cx="640.0" cy="70.0" r="4"><title>run 7 (2027020): Call sites recall 100.0%</title></circle>
+<polyline class="ln s3" points="64.0,145.7 160.0,89.8 256.0,70.0 352.0,70.0 448.0,72.7 544.0,72.7 640.0,70.0"/>
 <circle class="dot d3" cx="64.0" cy="145.7" r="4"><title>run 1 (b81eed0): Targets recall 90.5%</title></circle>
-<circle class="dot d3" cx="256.0" cy="89.8" r="4"><title>run 2 (c46e806): Targets recall 97.5%</title></circle>
-<circle class="dot d3" cx="448.0" cy="70.0" r="4"><title>run 3 (a924027): Targets recall 100.0%</title></circle>
-<circle class="dot d3" cx="640.0" cy="70.0" r="4"><title>run 4 (d3b8b09): Targets recall 100.0%</title></circle>
+<circle class="dot d3" cx="160.0" cy="89.8" r="4"><title>run 2 (c46e806): Targets recall 97.5%</title></circle>
+<circle class="dot d3" cx="256.0" cy="70.0" r="4"><title>run 3 (a924027): Targets recall 100.0%</title></circle>
+<circle class="dot d3" cx="352.0" cy="70.0" r="4"><title>run 4 (d3b8b09): Targets recall 100.0%</title></circle>
+<circle class="dot d3" cx="448.0" cy="72.7" r="4"><title>run 5 (7ffffdb): Targets recall 99.7%</title></circle>
+<circle class="dot d3" cx="544.0" cy="72.7" r="4"><title>run 6 (7035f7a): Targets recall 99.7%</title></circle>
+<circle class="dot d3" cx="640.0" cy="70.0" r="4"><title>run 7 (2027020): Targets recall 100.0%</title></circle>
 <text x="652" y="74.0">Call sites 100.0%</text>
 <text x="652" y="88.0">Symbols 100.0%</text>
 <text x="652" y="102.0">Targets 100.0%</text>
 <text class="h" x="64" y="274">Code-review findings per run (lower is better)</text>
 <line class="grid" x1="64" x2="640" y1="430" y2="430"/>
 <text x="64.0" y="424" text-anchor="middle">n/a</text>
-<rect class="bar" x="240.0" y="318.0" width="32" height="112.0" rx="4"><title>run 2 (c46e806): 31 findings — standards 11, spec 11, correctness 9</title></rect>
-<text class="v" x="256.0" y="313.0" text-anchor="middle">31</text>
+<rect class="bar" x="144.0" y="318.0" width="32" height="112.0" rx="4"><title>run 2 (c46e806): 31 findings — standards 11, spec 11, correctness 9</title></rect>
+<text class="v" x="160.0" y="313.0" text-anchor="middle">31</text>
+<text x="256.0" y="424" text-anchor="middle">n/a</text>
+<text x="352.0" y="424" text-anchor="middle">n/a</text>
 <text x="448.0" y="424" text-anchor="middle">n/a</text>
+<text x="544.0" y="424" text-anchor="middle">n/a</text>
 <text x="640.0" y="424" text-anchor="middle">n/a</text>
 <text x="64.0" y="450" text-anchor="middle">run 1</text>
 <text x="64.0" y="466" text-anchor="middle">b81eed0</text>
-<text x="256.0" y="450" text-anchor="middle">run 2</text>
-<text x="256.0" y="466" text-anchor="middle">c46e806</text>
-<text x="448.0" y="450" text-anchor="middle">run 3</text>
-<text x="448.0" y="466" text-anchor="middle">a924027</text>
-<text x="640.0" y="450" text-anchor="middle">run 4</text>
-<text x="640.0" y="466" text-anchor="middle">d3b8b09</text>
+<text x="160.0" y="450" text-anchor="middle">run 2</text>
+<text x="160.0" y="466" text-anchor="middle">c46e806</text>
+<text x="256.0" y="450" text-anchor="middle">run 3</text>
+<text x="256.0" y="466" text-anchor="middle">a924027</text>
+<text x="352.0" y="450" text-anchor="middle">run 4</text>
+<text x="352.0" y="466" text-anchor="middle">d3b8b09</text>
+<text x="448.0" y="450" text-anchor="middle">run 5</text>
+<text x="448.0" y="466" text-anchor="middle">7ffffdb</text>
+<text x="544.0" y="450" text-anchor="middle">run 6</text>
+<text x="544.0" y="466" text-anchor="middle">7035f7a</text>
+<text x="640.0" y="450" text-anchor="middle">run 7</text>
+<text x="640.0" y="466" text-anchor="middle">2027020</text>
 </svg>
