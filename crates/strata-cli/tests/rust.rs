@@ -232,3 +232,16 @@ fn generic_parameters_are_not_type_references_but_their_bounds_are() {
         "generic param T leaked as a type reference"
     );
 }
+
+#[test]
+fn type_references_in_constructors_turbofish_and_macros() {
+    assert_eq!(
+        refs("app.main.Tup"),
+        vec![
+            "resolved[type] app.main.types_in_odd_places -> app.main.Tup app/src/main.rs:85",
+            "resolved[type] app.main.types_in_odd_places -> app.main.Tup app/src/main.rs:86",
+            "resolved[type] app.main.types_in_odd_places -> app.main.Tup app/src/main.rs:87",
+            "resolved[type] app.main.types_in_odd_places -> app.main.Tup app/src/main.rs:89",
+        ]
+    );
+}

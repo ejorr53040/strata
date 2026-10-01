@@ -242,6 +242,11 @@ impl State<'_> {
                     self.visit(recv);
                 }
             }
+            if child.kind() == "generic_function" {
+                if let Some(args) = child.child_by_field_name("type_arguments") {
+                    self.walk(args);
+                }
+            }
         }
     }
 
@@ -288,6 +293,18 @@ impl State<'_> {
     fn scoped_ref(&mut self, node: Node, kind: EdgeKind, with_last: bool) {
         let raw = strip_generics(&self.text(node));
         let segs: Vec<&str> = raw.split("::").collect();
+        let first = self.line(node);
+        let last = node.end_position().row + 1 + self.row_off;
+        self.path_refs(&segs, first, last, with_last.then_some(kind));
+    }
+
+    fn path_refs(
+        &mut self,
+        segs: &[&str],
+        first_line: usize,
+        last_line: usize,
+        last: Option<EdgeKind>,
+    ) {
         if segs.len() == 1 || segs[0].is_empty() {
             return;
         }
@@ -296,15 +313,14 @@ impl State<'_> {
             if i == 0 && first_generic {
                 continue;
             }
-            let prefix = segs[..=i].join("::");
-            self.push_ref(self.path(&prefix), self.line(node), EdgeKind::Path);
-        }
-        if with_last && !first_generic {
             self.push_ref(
-                self.path(&raw),
-                node.end_position().row + 1 + self.row_off,
-                kind,
+                self.path(&segs[..=i].join("::")),
+                first_line,
+                EdgeKind::Path,
             );
+        }
+        if let (Some(kind), false) = (last, first_generic) {
+            self.push_ref(self.path(&segs.join("::")), last_line, kind);
         }
     }
 
@@ -587,15 +603,22 @@ impl State<'_> {
         if callee != "__strata_macro" {
             self.push_call(callee, self.line(node));
         }
-        if f.kind() == "scoped_identifier" {
-            self.scoped_ref(f, EdgeKind::Value, false);
+        let path_node = if f.kind() == "generic_function" {
+            f.child_by_field_name("function")
+        } else {
+            Some(f)
+        };
+        if let Some(p) = path_node.filter(|p| p.kind() == "scoped_identifier") {
+            self.scoped_ref(p, EdgeKind::Value, false);
         }
     }
 
     fn push_call(&mut self, callee: String, line: usize) {
-        // `Enum::Variant(..)` and `Wrapper(..)` build values; they are not call edges.
+        // `Enum::Variant(..)` and `Wrapper(..)` build values: a reference to the type or
+        // variant, not a call edge.
         let last = callee.rsplit('.').next().unwrap_or(&callee);
         if last.starts_with(|c: char| c.is_uppercase()) {
+            self.push_ref(callee, line, EdgeKind::Value);
             return;
         }
         let local = !callee.contains('.') && self.is_local(&callee);
@@ -635,33 +658,50 @@ impl State<'_> {
         }
     }
 
-    /// Calls in a macro body that is not valid Rust: every `name (..)` pair of tokens.
+    /// References in a macro body that is not valid Rust: walk the tokens, reading
+    /// `a::b::c (..)` as a call and other identifier paths as references.
     fn scan_tokens(&mut self, tt: Node) {
         let mut c = tt.walk();
         let kids: Vec<Node> = tt.children(&mut c).collect();
-        for (i, k) in kids.iter().enumerate() {
+        let mut i = 0;
+        while i < kids.len() {
+            let k = kids[i];
             if k.kind() == "token_tree" {
-                self.scan_tokens(*k);
+                self.scan_tokens(k);
+                i += 1;
                 continue;
+            }
+            if k.kind() != "identifier" {
+                i += 1;
+                continue;
+            }
+            let mut parts = vec![self.text(k)];
+            let mut j = i;
+            while j + 2 < kids.len()
+                && kids[j + 1].kind() == "::"
+                && kids[j + 2].kind() == "identifier"
+            {
+                parts.push(self.text(kids[j + 2]));
+                j += 2;
             }
             let called = kids
-                .get(i + 1)
+                .get(j + 1)
                 .is_some_and(|n| n.kind() == "token_tree" && self.text(*n).starts_with('('));
-            if k.kind() != "identifier" || !called {
-                continue;
-            }
-            let mut callee = self.text(*k);
+            let line = self.line(kids[j]);
+            let segs: Vec<&str> = parts.iter().map(String::as_str).collect();
             if i >= 1 && kids[i - 1].kind() == "." {
-                callee = format!("_.{callee}");
-            } else {
-                let mut j = i;
-                while j >= 2 && kids[j - 1].kind() == "::" && kids[j - 2].kind() == "identifier" {
-                    callee = format!("{}::{callee}", self.text(kids[j - 2]));
-                    j -= 2;
+                if called {
+                    self.push_call(format!("_.{}", parts[0]), line);
                 }
-                callee = self.path(&callee);
+            } else if called {
+                self.path_refs(&segs, self.line(k), line, None);
+                self.push_call(self.path(&segs.join("::")), line);
+            } else if parts.len() > 1 {
+                self.path_refs(&segs, self.line(k), line, Some(EdgeKind::Value));
+            } else if parts[0].starts_with(|ch: char| ch.is_uppercase()) {
+                self.push_ref(parts[0].clone(), line, EdgeKind::Value);
             }
-            self.push_call(callee, self.line(*k));
+            i = j + 1;
         }
     }
 
@@ -739,6 +779,16 @@ impl State<'_> {
         }
         // Keep calls only; the synthetic fn is not a definition.
         let enclosing = self.enclosing_fn();
+        let here = self.scope.last().map(|s| s.0.clone());
+        for mut r in tmp.refs {
+            if r.enclosing
+                .as_deref()
+                .is_some_and(|e| e.ends_with("__strata_fn"))
+            {
+                r.enclosing = here.clone();
+            }
+            self.facts.refs.push(r);
+        }
         for mut call in tmp.calls {
             if call
                 .enclosing

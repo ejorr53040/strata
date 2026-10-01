@@ -76,3 +76,17 @@ fn json_like(config: Cfg) {
 fn turbofish() {
     let _v = Vec::<String>::new();
 }
+
+pub struct Tup(pub i32);
+
+fn generic_fn<T>() {}
+
+fn types_in_odd_places(config: Cfg) {
+    let _a = Tup(1);
+    generic_fn::<Tup>();
+    assert_eq!(Tup(2).0, 2);
+    let _j = serde_json::json!({
+        "a": Tup(3),
+        "b": config.field,
+    });
+}
