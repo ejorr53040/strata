@@ -154,6 +154,8 @@ struct State<'a> {
     locals: Vec<HashSet<String>>,
     /// Generic parameter names in scope (`T` in `fn f<T>`): never references to an item.
     generics: Vec<HashSet<String>>,
+    /// The trait of the `impl Trait for Type` block being walked, as a dotted path.
+    impl_trait: Option<String>,
     /// `mod x;` declared in this file: `use x::f` means `use self::x::f`.
     declared_mods: HashSet<String>,
     facts: &'a mut FileFacts,
@@ -217,6 +219,7 @@ fn parse_into(
         scope,
         locals: outer_locals.to_vec(),
         generics: Vec::new(),
+        impl_trait: None,
         declared_mods: HashSet::new(),
         facts,
         impls,
@@ -683,6 +686,16 @@ impl State<'_> {
             line: self.line(node),
             bases: Vec::new(),
         });
+        if let (Some(tr), DefKind::Method) = (&self.impl_trait, kind) {
+            // This method implements the trait's method of the same name.
+            self.facts.refs.push(Ref {
+                enclosing: Some(qualname.clone()),
+                expr: format!("{tr}.{}", self.name_of(node)),
+                line: self.line(node),
+                local: false,
+                kind: EdgeKind::Impl,
+            });
+        }
         self.scope.push((qualname, Scope::Func));
         self.locals.push(self.collect_locals(node));
         self.generics.push(self.collect_generics(node));
@@ -736,11 +749,23 @@ impl State<'_> {
         };
         let ty_name = self.type_name(ty);
         let qual = self.qualify(&ty_name);
+        let mut trait_path = None;
         if let Some(tr) = node.child_by_field_name("trait") {
             let tr = self.type_name(tr);
-            self.impls.push((qual.clone(), tr));
+            self.impls.push((qual.clone(), tr.clone()));
+            // The type implements the trait: one edge, from the type, at the `impl` line.
+            self.facts.refs.push(Ref {
+                enclosing: Some(qual.clone()),
+                expr: tr.clone(),
+                line: self.line(node),
+                local: false,
+                kind: EdgeKind::Impl,
+            });
+            trait_path = Some(tr);
         }
+        let outer = std::mem::replace(&mut self.impl_trait, trait_path);
         self.enter_item(node, qual, Scope::Type);
+        self.impl_trait = outer;
     }
 
     /// `Foo<T>` -> `Foo`, `a::b::Foo` -> `a.b.Foo`.

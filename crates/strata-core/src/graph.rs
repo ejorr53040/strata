@@ -570,11 +570,19 @@ impl Index<'_> {
             Outcome::Unresolved(why) if matches!(r.kind, EdgeKind::Type | EdgeKind::Field) => {
                 (EdgeState::Unresolved, Vec::new(), Some(why))
             }
+            // `impl Display for X` is worth keeping even though the trait is not ours.
+            Outcome::External(ev) if r.kind == EdgeKind::Impl => {
+                (EdgeState::External, Vec::new(), Some(ev))
+            }
             _ => return None,
+        };
+        let (evidence, reason) = match state {
+            EdgeState::External => (reason, None),
+            _ => (None, reason),
         };
         let kind = match r.kind {
             // A `use` line stays an import whatever it imports.
-            EdgeKind::Import => EdgeKind::Import,
+            EdgeKind::Import | EdgeKind::Impl => r.kind,
             k => targets.first().map_or(k, |t| self.refine(k, t)),
         };
         if r.local
@@ -589,7 +597,7 @@ impl Index<'_> {
             callee: r.expr.clone(),
             state,
             targets,
-            evidence: None,
+            evidence,
             reason,
             path: path.to_string(),
             line: r.line,

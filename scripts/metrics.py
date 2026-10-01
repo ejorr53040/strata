@@ -186,7 +186,10 @@ def target_matches(target, desc, fn_name):
 
 
 DEF_CATS = ("fn", "type", "field", "variant", "const", "module")
-REF_CATS = ("call", "value", "type", "field", "variant", "const", "module", "import")
+REF_CATS = (
+    "call", "value", "type", "field", "variant", "const", "module", "import",
+    "impl_block", "impl_method",
+)
 # Edge kinds that count as strata having seen a reference of that category.
 KINDS = {
     "call": {"call"},
@@ -203,6 +206,8 @@ KINDS = {
 def category(symbol):
     """Connection category of a SCIP symbol: fn, type, field, variant, const, module, or None."""
     d = descriptors(symbol)
+    if "impl#[" in d and d.endswith("()."):
+        return "fn"  # a method whose impl rust-analyzer could not path: `impl#[Type]name().`
     if d.startswith("impl#") or "impl#[" in d or d.endswith((")", "]", "!")):
         return None
     if d.endswith("()."):
@@ -232,6 +237,58 @@ def use_lines(lines):
             out.add(i)
             if st.endswith(";") or ";" in st.split("//")[0]:
                 inside = False
+    return out
+
+
+def impl_truth(root, rels):
+    """`impl Trait for Type` blocks and their methods, found by scanning the source text.
+
+    Independent of tree-sitter: a regex for the header, brace counting for the body.
+    -> [(path, impl_line, trait, [(method, line)])]
+    """
+    out = []
+    for rel in rels:
+        text = (root / rel).read_text(errors="replace")
+        for m in re.finditer(r"(?m)^[ \t]*(?:unsafe[ \t]+)?impl\b", text):
+            i = m.end()
+            depth = 0
+            while i < len(text) and text[i].isspace():
+                i += 1
+            if i < len(text) and text[i] == "<":  # impl<T: A<B>> ...
+                while i < len(text):
+                    depth += text[i] == "<"
+                    depth -= text[i] == ">"
+                    i += 1
+                    if depth == 0:
+                        break
+            start = i
+            while i < len(text) and text[i] not in "{;":
+                i += 1
+            if i >= len(text) or text[i] == ";":
+                continue
+            header = re.sub(r"\s+", " ", text[start:i]).split(" where ")[0]
+            # a ` for ` outside any <...>
+            level, cut = 0, None
+            for k, ch in enumerate(header):
+                level += ch == "<"
+                level -= ch == ">"
+                if level == 0 and header[k:k + 5] == " for ":
+                    cut = k
+                    break
+            if cut is None:
+                continue
+            trait = re.sub(r"<.*", "", header[:cut]).strip().split("::")[-1]
+            body_start, depth, j, methods = i, 0, i, []
+            while j < len(text):
+                depth += text[j] == "{"
+                depth -= text[j] == "}"
+                if depth == 0:
+                    break
+                j += 1
+            for fm in re.finditer(r"\bfn\s+(\w+)", text[body_start:j]):
+                if text[body_start:body_start + fm.start()].count("{") - text[body_start:body_start + fm.start()].count("}") == 1:
+                    methods.append((fm.group(1), text.count("\n", 0, body_start + fm.start()) + 1))
+            out.append((rel, text.count("\n", 0, m.start()) + 1 + (1 if text[m.start()] == "\n" else 0), trait, methods))
     return out
 
 
@@ -318,6 +375,33 @@ def depth_scores(root, symbols, edges, defs, refs):
             right_n[cat] += 1
         elif near:
             missed.append((cat, rel, line1, name, "wrong target: " + near[0]["state"]))
+
+    # trait impls: the block (type -> trait) and each of its methods (method -> trait method)
+    rels = [
+        str(p.relative_to(root))
+        for p in root.rglob("*.rs")
+        if "/fixtures/" not in str(p.relative_to(root)) and not str(p.relative_to(root)).startswith("target/")
+    ]
+    for rel, impl_line, trait, methods in impl_truth(root, rels):
+        at = {}
+        for e in by_path.get(rel, []):
+            if e.get("kind") == "impl":
+                at.setdefault(e["line"], []).append(e)
+        checks = [("impl_block", impl_line, trait, None)] + [
+            ("impl_method", ln, trait, name) for name, ln in methods
+        ]
+        for cat, ln, tr, name in checks:
+            ref_tot[cat] += 1
+            want = [tr] if name is None else [tr, name]
+            near = [
+                e for e in at.get(ln, [])
+                if e["callee"].split(".")[-len(want):] == want
+            ]
+            if near:
+                seen_n[cat] += 1
+                right_n[cat] += 1  # the callee spells the trait; targets are checked by tests
+            else:
+                missed.append((cat, rel, ln, ".".join(want), "not seen"))
 
     def pct(a, b):
         return round(100 * a / b, 2) if b else None

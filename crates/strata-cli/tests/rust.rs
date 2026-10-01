@@ -505,3 +505,41 @@ fn path_attribute_points_a_mod_declaration_at_another_file() {
     assert!(run(&["symbols", "helper_alias"])
         .contains(&"module helper_alias app/tests/it.rs:14".to_string()));
 }
+
+// Depth round 7: trait implementations.
+
+fn impl_edges() -> Vec<serde_json::Value> {
+    let v: Vec<serde_json::Value> =
+        serde_json::from_str(&run(&["call", "edges", "{}"]).join("")).unwrap();
+    v.into_iter().filter(|e| e["kind"] == "impl").collect()
+}
+
+#[test]
+fn trait_impls_are_edges_from_the_type_and_from_each_method_to_the_trait() {
+    let lines = refs("shapes.Shape");
+    assert!(
+        lines.contains(
+            &"resolved[impl] shapes.Circle -> shapes.Shape shapes/src/lib.rs:27".to_string()
+        ),
+        "{lines:#?}"
+    );
+    let lines = refs("shapes.Shape.area");
+    assert!(
+        lines.contains(
+            &"resolved[impl] shapes.Circle.area -> shapes.Shape.area shapes/src/lib.rs:28"
+                .to_string()
+        ),
+        "{lines:#?}"
+    );
+}
+
+#[test]
+fn impls_of_traits_outside_the_repo_are_kept_as_external_edges() {
+    let e = impl_edges();
+    let drop = e
+        .iter()
+        .find(|e| e["caller"] == "app.main.Guard2.drop")
+        .expect("Guard2.drop implements Drop");
+    assert_eq!(drop["state"], "external");
+    assert_eq!(drop["callee"], "Drop.drop");
+}
