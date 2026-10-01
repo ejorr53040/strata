@@ -26,3 +26,26 @@ strata indexes its own Rust source. For "who calls X", "what breaks if I change 
 later to MCP and `strata ask`. If strata's answer looks wrong, that is a bug in strata:
 write a failing fixture test under `crates/strata-cli/tests/` first.
 
+
+## Metrics
+
+strata scores itself against rust-analyzer's SCIP index and tracks the numbers over time:
+`scripts/metrics.py`, history in `docs/metrics/history.jsonl`, chart `docs/metrics/chart.svg`,
+table and chart embedded in `README.md`. **Keep them current as part of the work, not as an
+afterthought:**
+
+1. After any change to the resolver, a language plugin, the walker or the tool catalog, and
+   after every `code-review`, commit the change first (runs measure a clean checkout of a
+   commit, never uncommitted edits), then run
+   `python3 scripts/metrics.py run --label "<what changed>"`. For a review, add
+   `--review standards=N,spec=N,correctness=N` with that review's finding counts.
+2. Commit `docs/metrics/` and `README.md` in a follow-up commit ("metrics: <rev>"). Never
+   hand-edit them; `python3 scripts/metrics.py render` redraws from history.
+3. Read the new row against the previous one. Recall must not drop; if it does, that is the
+   next bug. `-v` lists every missed call and definition. A miss strata gets wrong is a
+   strata bug: add a failing fixture test under `crates/strata-cli/tests/` first, then fix.
+   A miss that is the scorer's fault gets fixed in `metrics.py` and noted in the commit.
+4. Report each run's deltas (recall, false external, unresolved, review findings) to the user.
+
+The numbers are Rust-only; `scripts/` and test fixtures are in `.strataignore` so they do not
+distort the self-index. The runs table is a series: do not delete rows or rewrite old ones.

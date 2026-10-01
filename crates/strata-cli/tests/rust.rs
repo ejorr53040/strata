@@ -123,6 +123,10 @@ fn dogfood_round_two_crate_root_mods_and_match_guards() {
         run(&["callees", "app.tests.it.it"]),
         vec!["resolved app.tests.it.it -> app.tests.common.setup app/tests/it.rs:4"]
     );
+    assert_eq!(
+        run(&["callees", "app.tests.it.it2"]),
+        vec!["resolved app.tests.it.it2 -> app.tests.common.setup app/tests/it.rs:10"]
+    );
     // A call inside a match guard is a call, not a pattern binding.
     assert_eq!(
         run(&["callees", "app.main.guard"]),

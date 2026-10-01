@@ -415,13 +415,12 @@ impl State<'_> {
     fn bind(&mut self, full: &str, alias: Option<String>) {
         let full = full.strip_suffix("::self").unwrap_or(full);
         let first = full.split("::").next().unwrap_or(full);
-        let full = if self.declared_mods.contains(first) {
-            format!("self::{full}")
+        // `use x::f` where `mod x;` is declared here names the file beside/under this one.
+        let dotted = if self.declared_mods.contains(first) {
+            format!("{}.{}", self.children, full.replace("::", "."))
         } else {
-            full.to_string()
+            self.path(full)
         };
-        let full = full.as_str();
-        let dotted = self.path(full);
         match dotted.rsplit_once('.') {
             Some((module, name)) if !full.ends_with("::self") => {
                 self.facts.imports.push(Import {
