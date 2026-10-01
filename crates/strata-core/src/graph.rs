@@ -450,6 +450,12 @@ impl Index<'_> {
         for k in (1..=segs.len()).rev() {
             let l = self.lookup(module, &segs[..k].join("."));
             if !matches!(l, Lookup::Missing) {
+                // `STATIC.method()`: a value of unknown type, not a path into the item.
+                let is_value = matches!(&l, Lookup::Def(id) if self.symbols.get(id)
+                    .is_some_and(|s| matches!(s.kind, DefKind::Const | DefKind::Static)));
+                if is_value && k < segs.len() {
+                    continue;
+                }
                 return self.resolve_from(lang, l, &segs[k..], false);
             }
         }

@@ -90,3 +90,21 @@ fn types_in_odd_places(config: Cfg) {
         "b": config.field,
     });
 }
+
+const LIMIT: i32 = 3;
+static NAME: &str = "n";
+
+fn double(x: i32) -> i32 {
+    x * 2
+}
+
+struct Args {
+    #[arg(value_parser = double)]
+    n: i32,
+}
+
+fn consts_and_values() {
+    let _x = LIMIT + 1;
+    let _n = NAME.len();
+    let _v: Vec<i32> = vec![1].into_iter().map(double).collect();
+}

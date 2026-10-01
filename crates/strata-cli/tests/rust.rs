@@ -245,3 +245,34 @@ fn type_references_in_constructors_turbofish_and_macros() {
         ]
     );
 }
+
+// Depth round 2: functions and constants as values.
+
+#[test]
+fn consts_and_statics_are_symbols_and_their_uses_are_value_references() {
+    let syms = run(&["symbols", ""]);
+    assert!(
+        syms.contains(&"const LIMIT app/src/main.rs:94".to_string()),
+        "{syms:#?}"
+    );
+    assert!(syms.contains(&"static NAME app/src/main.rs:95".to_string()));
+    assert_eq!(
+        refs("app.main.LIMIT"),
+        vec!["resolved[value] app.main.consts_and_values -> app.main.LIMIT app/src/main.rs:107"]
+    );
+    // A method call on a static is a call on a value of unknown type, not an unresolved name.
+    assert!(run(&["callees", "app.main.consts_and_values"])
+        .iter()
+        .all(|l| !l.starts_with("unresolved")));
+}
+
+#[test]
+fn functions_used_as_values_and_in_attributes_are_references() {
+    assert_eq!(
+        refs("app.main.double"),
+        vec![
+            "resolved[value] app.main.Args -> app.main.double app/src/main.rs:102",
+            "resolved[value] app.main.consts_and_values -> app.main.double app/src/main.rs:109",
+        ]
+    );
+}

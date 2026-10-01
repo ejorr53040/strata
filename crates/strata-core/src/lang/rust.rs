@@ -220,6 +220,10 @@ impl State<'_> {
                     self.macro_call(child);
                 }
             }
+            "const_item" => self.item(child, DefKind::Const, Scope::Item),
+            "static_item" => self.item(child, DefKind::Static, Scope::Item),
+            "identifier" => self.ident_ref(child),
+            "attribute_item" | "inner_attribute_item" => self.attribute(child),
             "type_identifier" => self.type_ref(child),
             "scoped_type_identifier" => self.scoped_ref(child, EdgeKind::Type, true),
             "scoped_identifier" => self.scoped_ref(child, EdgeKind::Value, false),
@@ -258,6 +262,74 @@ impl State<'_> {
             line,
             kind,
         });
+    }
+
+    /// A bare name in an expression: a function, constant or static if one is in scope.
+    /// Locals and definition names are not references; names that resolve to nothing are
+    /// dropped by the graph.
+    fn ident_ref(&mut self, node: Node) {
+        let is_def_name = node.parent().is_some_and(|p| {
+            matches!(
+                p.kind(),
+                "function_item"
+                    | "function_signature_item"
+                    | "const_item"
+                    | "static_item"
+                    | "mod_item"
+                    | "enum_variant"
+                    | "union_item"
+            ) && p
+                .child_by_field_name("name")
+                .is_some_and(|n| n.id() == node.id())
+        });
+        let name = self.text(node);
+        if is_def_name || self.is_local(&name) {
+            return;
+        }
+        self.push_ref(name, self.line(node), EdgeKind::Value);
+    }
+
+    /// `#[arg(value_parser = parse_env)]`: the path after `=` names an item.
+    fn attribute(&mut self, node: Node) {
+        fn token_trees<'t>(n: Node<'t>, out: &mut Vec<Node<'t>>) {
+            if n.kind() == "token_tree" {
+                out.push(n);
+            }
+            let mut c = n.walk();
+            for ch in n.children(&mut c) {
+                token_trees(ch, out);
+            }
+        }
+        let mut trees = Vec::new();
+        token_trees(node, &mut trees);
+        for tt in trees {
+            let mut c = tt.walk();
+            let kids: Vec<Node> = tt.children(&mut c).collect();
+            for (i, k) in kids.iter().enumerate() {
+                if k.kind() != "=" {
+                    continue;
+                }
+                let Some(first) = kids.get(i + 1).filter(|n| n.kind() == "identifier") else {
+                    continue;
+                };
+                let mut parts = vec![self.text(*first)];
+                let mut j = i + 1;
+                while j + 2 < kids.len()
+                    && kids[j + 1].kind() == "::"
+                    && kids[j + 2].kind() == "identifier"
+                {
+                    parts.push(self.text(kids[j + 2]));
+                    j += 2;
+                }
+                let segs: Vec<&str> = parts.iter().map(String::as_str).collect();
+                let line = self.line(kids[j]);
+                if segs.len() == 1 {
+                    self.push_ref(parts[0].clone(), line, EdgeKind::Value);
+                } else {
+                    self.path_refs(&segs, self.line(*first), line, Some(EdgeKind::Value));
+                }
+            }
+        }
     }
 
     fn is_generic(&self, name: &str) -> bool {
