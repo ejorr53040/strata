@@ -292,7 +292,10 @@ impl Index<'_> {
     }
 
     fn lookup_in(&self, module: &str, name: &str, depth: usize) -> Lookup {
-        let (lang, facts, _) = &self.modules[module];
+        // An inline `mod x { .. }` is a module id but has no file facts of its own.
+        let Some((lang, facts, _)) = self.modules.get(module) else {
+            return Lookup::Missing;
+        };
         let own = qualify(module, name);
         // An inline module (or a `#[path]` alias) is a module, not a type: an import of the
         // same name wins, else it is reached as a module.

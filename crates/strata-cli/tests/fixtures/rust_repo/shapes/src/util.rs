@@ -43,3 +43,7 @@ mod cyc {
         not_defined_here();
     }
 }
+
+fn calls_inline() {
+    inline_tests::nope();
+}

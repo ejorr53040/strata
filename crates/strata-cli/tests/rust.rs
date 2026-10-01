@@ -489,7 +489,12 @@ fn nothing_in_the_fixture_is_left_unresolved() {
     let bad: Vec<String> = v
         .iter()
         // `cyc::f` calls a name that is deliberately defined nowhere (the loop-guard test).
-        .filter(|e| e["state"] == "unresolved" && e["callee"] != "not_defined_here")
+        .filter(|e| {
+            e["state"] == "unresolved"
+                && e["callee"] != "not_defined_here"
+                && e["callee"] != "util.inline_tests.nope"
+                && e["callee"] != "inline_tests.nope"
+        })
         .map(|e| format!("{} {} {} {}", e["kind"], e["path"], e["line"], e["callee"]))
         .collect();
     assert!(bad.is_empty(), "unresolved edges: {bad:#?}");
@@ -596,6 +601,16 @@ fn an_import_that_points_back_at_its_own_module_does_not_loop() {
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(
         lines[0].starts_with("unresolved shapes.util.cyc.f -> not_defined_here"),
+        "{lines:?}"
+    );
+}
+
+#[test]
+fn a_missing_name_inside_an_inline_module_is_unresolved_not_a_crash() {
+    let lines = run(&["callees", "shapes.util.calls_inline"]);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0].starts_with("unresolved shapes.util.calls_inline"),
         "{lines:?}"
     );
 }

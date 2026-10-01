@@ -116,3 +116,7 @@ pub fn via_inline() {
 }
 
 nix::ioctl_readwrite_bad!(tun_rw, 0x54, Gauge);
+
+pub fn via_inline_missing() {
+    util::inline_tests::nope();
+}
