@@ -31,12 +31,13 @@ number and the chart below; see [Metrics](CLAUDE.md#metrics) for when to run it.
 
 ![strata (self-analysis) chart](docs/metrics/chart.svg)
 
-| Run | strata | What changed | Symbol recall | Call-site recall | Target recall | False external | Unresolved | Review findings (std / spec / correctness) |
+| Run | Rev | What changed | Symbol recall | Call-site recall | Target recall | False external | Unresolved | Review findings (std / spec / correctness) |
 | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
 | 1 | `b81eed0` | first Rust plugin | 100.0% | 100.0% | 90.5% | 7 | 991 | – |
 | 2 | `c46e806` | agent tools + resolver fixes (reviewed) | 100.0% | 99.5% | 97.5% | 7 | 0 | 31 (11 / 11 / 9) |
 | 3 | `a924027` | crate-root mods + match-guard fixes | 100.0% | 100.0% | 100.0% | 0 | 0 | – |
 | 4 | `d3b8b09` | fixes for cirrocumulus gaps | 100.0% | 100.0% | 100.0% | 0 | 0 | – |
+
 
 <!-- metrics:end -->
 
@@ -48,9 +49,28 @@ The same scoring on a repository outside strata. Run 1 is strata's first look at
 
 ![cirrocumulus (external corpus) chart](docs/metrics/chart-cirrocumulus.svg)
 
-| Run | strata | corpus | What changed | Symbol recall | Call-site recall | Target recall | False external | Unresolved | Calls scored |
-| ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | `a924027` | `a8cf4eb` | baseline, before cirrocumulus fixes | 99.2% | 99.1% | 98.3% | 0 | 11 | 805 |
-| 2 | `d3b8b09` | `a8cf4eb` | gaps fixed: shadowing, globs, json macros, derives, turbofish, aliases, ioctl | 100.0% | 100.0% | 100.0% | 0 | 0 | 805 |
+| Run | strata | corpus | What changed | Definitions | References seen | References right | Calls right | False external | Unresolved | Map tokens |
+| ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | `a924027` | `a8cf4eb` | baseline, before cirrocumulus fixes | 44.9% | 22.6% | 22.2% | 98.3% | 0 | 11 | – |
+| 2 | `d3b8b09` | `a8cf4eb` | gaps fixed: shadowing, globs, json macros, derives, turbofish, aliases, ioctl | 45.4% | 22.9% | 22.9% | 100.0% | 0 | 0 | – |
+
+Latest run (`d3b8b09`) by connection type. *seen*: strata recorded a connection at that spot; *right*: and its targets include the correct definition.
+
+| Connection | Total | Seen | Right |
+| --- | ---: | ---: | ---: |
+| reference: call | 456 | 100.0% | 100.0% |
+| reference: const | 112 | 0.0% | 0.0% |
+| reference: field | 609 | 0.0% | 0.0% |
+| reference: import | 122 | 0.0% | 0.0% |
+| reference: module | 105 | 0.0% | 0.0% |
+| reference: type | 462 | 0.0% | 0.0% |
+| reference: value | 16 | 0.0% | 0.0% |
+| reference: variant | 107 | 0.0% | 0.0% |
+| definition: const | 70 | 0.0% | – |
+| definition: field | 186 | 0.0% | – |
+| definition: fn | 228 | 100.0% | – |
+| definition: module | 40 | 0.0% | – |
+| definition: type | 54 | 100.0% | – |
+| definition: variant | 43 | 0.0% | – |
 
 <!-- metrics-cirrocumulus:end -->

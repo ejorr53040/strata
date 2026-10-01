@@ -13,33 +13,33 @@
 <rect class="bg" width="760" height="290"/>
 <text class="h" x="64" y="26">cirrocumulus (external corpus): recall vs rust-analyzer (%, higher is better)</text>
 <line class="ln s1" x1="64" x2="82" y1="46" y2="46"/>
-<text x="88" y="50">Symbols</text>
-<line class="ln s2" x1="166" x2="184" y1="46" y2="46"/>
-<text x="190" y="50">Call sites</text>
-<line class="ln s3" x1="292" x2="310" y1="46" y2="46"/>
-<text x="316" y="50">Targets</text>
+<text x="88" y="50">Definitions</text>
+<line class="ln s2" x1="198" x2="216" y1="46" y2="46"/>
+<text x="222" y="50">References seen</text>
+<line class="ln s3" x1="364" x2="382" y1="46" y2="46"/>
+<text x="388" y="50">References right</text>
 <line class="grid" x1="64" x2="640" y1="230.0" y2="230.0"/>
-<text x="56" y="234.0" text-anchor="end">90</text>
+<text x="56" y="234.0" text-anchor="end">10</text>
 <line class="grid" x1="64" x2="640" y1="190.0" y2="190.0"/>
-<text x="56" y="194.0" text-anchor="end">92.5</text>
+<text x="56" y="194.0" text-anchor="end">32.5</text>
 <line class="grid" x1="64" x2="640" y1="150.0" y2="150.0"/>
-<text x="56" y="154.0" text-anchor="end">95</text>
+<text x="56" y="154.0" text-anchor="end">55</text>
 <line class="grid" x1="64" x2="640" y1="110.0" y2="110.0"/>
-<text x="56" y="114.0" text-anchor="end">97.5</text>
+<text x="56" y="114.0" text-anchor="end">77.5</text>
 <line class="grid" x1="64" x2="640" y1="70.0" y2="70.0"/>
 <text x="56" y="74.0" text-anchor="end">100</text>
-<polyline class="ln s1" points="64.0,82.5 640.0,70.0"/>
-<circle class="dot d1" cx="64.0" cy="82.5" r="4"><title>run 1 (a924027): Symbols recall 99.2%</title></circle>
-<circle class="dot d1" cx="640.0" cy="70.0" r="4"><title>run 2 (d3b8b09): Symbols recall 100.0%</title></circle>
-<polyline class="ln s2" points="64.0,83.9 640.0,70.0"/>
-<circle class="dot d2" cx="64.0" cy="83.9" r="4"><title>run 1 (a924027): Call sites recall 99.1%</title></circle>
-<circle class="dot d2" cx="640.0" cy="70.0" r="4"><title>run 2 (d3b8b09): Call sites recall 100.0%</title></circle>
-<polyline class="ln s3" points="64.0,97.8 640.0,70.0"/>
-<circle class="dot d3" cx="64.0" cy="97.8" r="4"><title>run 1 (a924027): Targets recall 98.3%</title></circle>
-<circle class="dot d3" cx="640.0" cy="70.0" r="4"><title>run 2 (d3b8b09): Targets recall 100.0%</title></circle>
-<text x="652" y="74.0">Call sites 100.0%</text>
-<text x="652" y="88.0">Symbols 100.0%</text>
-<text x="652" y="102.0">Targets 100.0%</text>
+<polyline class="ln s1" points="64.0,167.9 640.0,167.0"/>
+<circle class="dot d1" cx="64.0" cy="167.9" r="4"><title>run 1 (a924027): Definitions recall 44.9%</title></circle>
+<circle class="dot d1" cx="640.0" cy="167.0" r="4"><title>run 2 (d3b8b09): Definitions recall 45.4%</title></circle>
+<polyline class="ln s2" points="64.0,207.7 640.0,207.0"/>
+<circle class="dot d2" cx="64.0" cy="207.7" r="4"><title>run 1 (a924027): References seen recall 22.6%</title></circle>
+<circle class="dot d2" cx="640.0" cy="207.0" r="4"><title>run 2 (d3b8b09): References seen recall 22.9%</title></circle>
+<polyline class="ln s3" points="64.0,208.3 640.0,207.0"/>
+<circle class="dot d3" cx="64.0" cy="208.3" r="4"><title>run 1 (a924027): References right recall 22.2%</title></circle>
+<circle class="dot d3" cx="640.0" cy="207.0" r="4"><title>run 2 (d3b8b09): References right recall 22.9%</title></circle>
+<text x="652" y="171.0">Definitions 45.4%</text>
+<text x="652" y="211.0">References right 22.9%</text>
+<text x="652" y="225.0">References seen 22.9%</text>
 <text x="64.0" y="250" text-anchor="middle">run 1</text>
 <text x="64.0" y="266" text-anchor="middle">a924027</text>
 <text x="640.0" y="250" text-anchor="middle">run 2</text>
