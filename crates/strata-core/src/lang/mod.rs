@@ -3,6 +3,7 @@
 
 use crate::graph::EdgeKind;
 
+pub mod javascript;
 pub mod python;
 pub mod rust;
 
@@ -135,6 +136,9 @@ pub struct FileFacts {
     pub defs: Vec<Def>,
     pub imports: Vec<Import>,
     pub calls: Vec<Call>,
+    /// The file's top-level definitions live in one scope shared with every other such file
+    /// (a classic `<script>`): a bare name not found here may be defined in any of them.
+    pub shares_globals: bool,
 }
 
 /// What a reader of a definition wants besides its name: its signature and summary line.
@@ -172,10 +176,11 @@ pub trait Language: Sync {
 
 static PYTHON: python::Python = python::Python;
 static RUST: rust::Rust = rust::Rust;
+static JAVASCRIPT: javascript::Javascript = javascript::Javascript;
 
 pub fn for_path(rel_path: &str) -> Option<&'static dyn Language> {
     let ext = rel_path.rsplit_once('.')?.1;
-    [&PYTHON as &dyn Language, &RUST]
+    [&PYTHON as &dyn Language, &RUST, &JAVASCRIPT]
         .into_iter()
         .find(|l| l.extensions().contains(&ext))
 }
