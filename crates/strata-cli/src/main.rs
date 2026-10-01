@@ -17,6 +17,12 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ConfigCmd,
     },
+    /// List files and their index state
+    Files {
+        /// Only files that were skipped, with the reason
+        #[arg(long)]
+        unindexed: bool,
+    },
     /// Find symbols by name substring
     Symbols {
         query: String,
@@ -54,6 +60,16 @@ fn effective_config(
     strata_core::config::resolve(&layers)
 }
 
+fn walk_options(
+    root: &std::path::Path,
+    set: &[String],
+) -> Result<strata_core::walk::WalkOptions, String> {
+    let cfg = effective_config(root, set)?;
+    Ok(strata_core::walk::WalkOptions::from_config_value(
+        &cfg["index.include"].value,
+    ))
+}
+
 fn main() {
     if let Err(e) = run() {
         eprintln!("error: {e}");
@@ -72,8 +88,17 @@ fn run() -> Result<(), String> {
                 println!("{k} = {} ({})", e.value, e.source.label());
             }
         }
+        Cmd::Files { unindexed } => {
+            if !unindexed {
+                return Err("only `files --unindexed` is supported for now".into());
+            }
+            for s in strata_core::walk::walk(&root, &walk_options(&root, &cli.set)?).unindexed {
+                println!("unindexed {} {}", s.rel, s.reason.label());
+            }
+        }
         Cmd::Symbols { query, json } => {
-            let syms = strata_core::index::symbols(&root, &query);
+            let opts = walk_options(&root, &cli.set)?;
+            let syms = strata_core::index::symbols_with(&root, &query, &opts);
             if json {
                 println!("{}", serde_json::to_string(&syms).unwrap());
             } else {

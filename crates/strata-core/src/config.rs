@@ -5,6 +5,7 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("agent.provider", "anthropic"),
     ("agent.model", "claude-sonnet-5-5"),
     ("daemon.idle_timeout_secs", "600"),
+    ("index.include", ""),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,6 +128,13 @@ fn flatten(text: &str, what: &str) -> Result<Vec<(String, String)>, String> {
             match v {
                 toml::Value::Table(inner) => go(&key, inner, out),
                 toml::Value::String(s) => out.push((key, s.clone())),
+                toml::Value::Array(items) => {
+                    let parts: Vec<String> = items
+                        .iter()
+                        .map(|i| i.as_str().map_or_else(|| i.to_string(), str::to_string))
+                        .collect();
+                    out.push((key, parts.join(",")));
+                }
                 other => out.push((key, other.to_string())),
             }
         }

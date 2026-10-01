@@ -1,3 +1,4 @@
+use crate::walk::WalkOptions;
 use std::path::Path;
 use tree_sitter::{Node, Parser};
 
@@ -9,48 +10,34 @@ pub struct Symbol {
     pub line: usize,
 }
 
-/// Index every `.py` file under `root` and return symbols whose name contains `query`
-/// (case-insensitive), sorted by path then line.
+/// Index every non-skipped `.py` file under `root` and return symbols whose name contains
+/// `query` (case-insensitive), sorted by path then line.
 pub fn symbols(root: &Path, query: &str) -> Vec<Symbol> {
-    let mut files = Vec::new();
-    collect(root, &mut files);
-    files.sort();
+    symbols_with(root, query, &WalkOptions::default())
+}
+
+/// Like [`symbols`], with explicit walk options (e.g. `index.include`).
+pub fn symbols_with(root: &Path, query: &str, opts: &WalkOptions) -> Vec<Symbol> {
     let q = query.to_lowercase();
     let mut out = Vec::new();
-    for file in files {
-        let Ok(src) = std::fs::read_to_string(&file) else {
-            continue;
-        };
-        let rel = file
-            .strip_prefix(root)
-            .unwrap_or(&file)
-            .to_string_lossy()
-            .replace('\\', "/");
+    for file in crate::walk::walk(root, opts).indexed {
         let mut parser = Parser::new();
         parser
             .set_language(&tree_sitter_python::LANGUAGE.into())
             .unwrap();
-        let Some(tree) = parser.parse(&src, None) else {
+        let Some(tree) = parser.parse(&file.text, None) else {
             continue;
         };
-        walk(tree.root_node(), src.as_bytes(), &rel, None, &mut out);
+        walk(
+            tree.root_node(),
+            file.text.as_bytes(),
+            &file.rel,
+            None,
+            &mut out,
+        );
     }
     out.retain(|s| s.name.to_lowercase().contains(&q));
     out
-}
-
-fn collect(dir: &Path, files: &mut Vec<std::path::PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for e in rd.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            collect(&p, files);
-        } else if p.extension().is_some_and(|x| x == "py") {
-            files.push(p);
-        }
-    }
 }
 
 fn walk(node: Node, src: &[u8], path: &str, class: Option<&str>, out: &mut Vec<Symbol>) {
