@@ -265,8 +265,15 @@ impl Index<'_> {
 
     fn lookup_in(&self, module: &str, name: &str, depth: usize) -> Lookup {
         let (lang, facts, _) = &self.modules[module];
-        if !name.contains('.') && self.symbols.contains_key(&qualify(module, name)) {
-            return Lookup::Def(qualify(module, name));
+        let own = qualify(module, name);
+        // An inline module (or a `#[path]` alias) is a module, not a type: an import of the
+        // same name wins, else it is reached as a module.
+        let is_module_def = self
+            .symbols
+            .get(&own)
+            .is_some_and(|s| s.kind == DefKind::Module);
+        if !name.contains('.') && self.symbols.contains_key(&own) && !is_module_def {
+            return Lookup::Def(own);
         }
         if let Some(imp) = facts.imports.iter().find(|i| i.local == name) {
             return match &imp.name {
@@ -292,6 +299,9 @@ impl Index<'_> {
             i.name.is_none() && i.local == i.module && i.local.split('.').next() == Some(name)
         }) {
             return self.module_ref(name, format!("import {}", imp.module));
+        }
+        if !name.contains('.') && is_module_def {
+            return Lookup::Module(own);
         }
         // `use m::*`: names the glob module defines.
         for imp in facts.imports.iter().filter(|i| i.local == "*") {

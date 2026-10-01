@@ -19,30 +19,7 @@ impl Language for Rust {
     }
 
     fn module_name(&self, rel_path: &str) -> String {
-        let comps: Vec<&str> = rel_path.split('/').collect();
-        let marker = comps
-            .iter()
-            .position(|c| matches!(*c, "src" | "tests" | "benches" | "examples"));
-        let (krate, rest): (String, Vec<&str>) = match marker {
-            Some(i) => {
-                let krate = if i > 0 { comps[i - 1] } else { "crate" };
-                // Only `src/` files live in the crate's own module tree.
-                let from = if comps[i] == "src" { i + 1 } else { i };
-                (krate.replace('-', "_"), comps[from..].to_vec())
-            }
-            None => ("crate".to_string(), comps),
-        };
-        let mut parts: Vec<String> = rest
-            .iter()
-            .map(|c| c.strip_suffix(".rs").unwrap_or(c).to_string())
-            .collect();
-        if parts.last().is_some_and(|l| l == "lib" || l == "mod") {
-            parts.pop();
-        }
-        std::iter::once(krate)
-            .chain(parts)
-            .collect::<Vec<_>>()
-            .join(".")
+        module_of(rel_path)
     }
 
     fn extract(&self, rel_path: &str, src: &str) -> FileFacts {
@@ -55,6 +32,7 @@ impl Language for Rust {
             Names {
                 module: &module,
                 children: &children,
+                dir: rel_path.rsplit_once('/').map_or("", |p| p.0),
             },
             Vec::new(),
             0,
@@ -78,6 +56,33 @@ impl Language for Rust {
     fn unindexed_members_are_external(&self) -> bool {
         true
     }
+}
+
+fn module_of(rel_path: &str) -> String {
+    let comps: Vec<&str> = rel_path.split('/').collect();
+    let marker = comps
+        .iter()
+        .position(|c| matches!(*c, "src" | "tests" | "benches" | "examples"));
+    let (krate, rest): (String, Vec<&str>) = match marker {
+        Some(i) => {
+            let krate = if i > 0 { comps[i - 1] } else { "crate" };
+            // Only `src/` files live in the crate's own module tree.
+            let from = if comps[i] == "src" { i + 1 } else { i };
+            (krate.replace('-', "_"), comps[from..].to_vec())
+        }
+        None => ("crate".to_string(), comps),
+    };
+    let mut parts: Vec<String> = rest
+        .iter()
+        .map(|c| c.strip_suffix(".rs").unwrap_or(c).to_string())
+        .collect();
+    if parts.last().is_some_and(|l| l == "lib" || l == "mod") {
+        parts.pop();
+    }
+    std::iter::once(krate)
+        .chain(parts)
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 /// Prelude items and std crates: always in scope, never indexed.
@@ -141,6 +146,7 @@ struct State<'a> {
     module: &'a str,
     /// Base module for `mod x;` declarations (see [`child_base`]).
     children: &'a str,
+    dir: &'a str,
     krate: &'a str,
     row_off: usize,
     scope: Vec<(String, Scope)>,
@@ -175,6 +181,8 @@ fn child_base(rel_path: &str, module: &str) -> String {
 struct Names<'a> {
     module: &'a str,
     children: &'a str,
+    /// Directory of the file, for `#[path = ".."]` on `mod x;`.
+    dir: &'a str,
 }
 
 fn parse_into(
@@ -193,12 +201,17 @@ fn parse_into(
     let Some(tree) = parser.parse(src, None) else {
         return true;
     };
-    let Names { module, children } = names;
+    let Names {
+        module,
+        children,
+        dir,
+    } = names;
     let krate = module.split('.').next().unwrap_or(module);
     let mut st = State {
         src: src.as_bytes(),
         module,
         children,
+        dir,
         krate,
         row_off,
         scope,
@@ -282,21 +295,32 @@ impl State<'_> {
         let callee = node.child_by_field_name("function").map(|f| f.id());
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if Some(child.id()) != callee {
+            if Some(child.id()) == callee {
+                self.callee_parts(child);
+            } else {
                 self.visit(child);
-                continue;
             }
-            // The receiver of `a.b.m()` is an expression that may hold references of its own.
-            if child.kind() == "field_expression" {
-                if let Some(recv) = child.child_by_field_name("value") {
+        }
+    }
+
+    /// What a callee expression holds besides its own name: the receiver of `a.b.m()` is an
+    /// expression with references of its own, and `f::<T>()` names types.
+    fn callee_parts(&mut self, callee: Node) {
+        match callee.kind() {
+            "field_expression" => {
+                if let Some(recv) = callee.child_by_field_name("value") {
                     self.visit(recv);
                 }
             }
-            if child.kind() == "generic_function" {
-                if let Some(args) = child.child_by_field_name("type_arguments") {
+            "generic_function" => {
+                if let Some(f) = callee.child_by_field_name("function") {
+                    self.callee_parts(f);
+                }
+                if let Some(args) = callee.child_by_field_name("type_arguments") {
                     self.walk(args);
                 }
             }
+            _ => {}
         }
     }
 
@@ -758,7 +782,19 @@ impl State<'_> {
             }
             // `mod x;` binds `x` to the file `x.rs` / `x/mod.rs` next to this one.
             None => {
-                let module = format!("{}.{name}", self.children);
+                let module = match self.path_attr(node) {
+                    Some(target) => {
+                        // The file lives elsewhere; this name is also a module here.
+                        self.facts.defs.push(Def {
+                            qualname: self.qualify(&name),
+                            kind: DefKind::Module,
+                            line: name_line,
+                            bases: Vec::new(),
+                        });
+                        module_of(&target)
+                    }
+                    None => format!("{}.{name}", self.children),
+                };
                 self.push_ref(module.clone(), name_line, EdgeKind::Path);
                 self.facts.imports.push(Import {
                     local: name.clone(),
@@ -767,6 +803,30 @@ impl State<'_> {
                 });
             }
         }
+    }
+
+    /// `#[path = "../x/mod.rs"] mod m;`: the repo-relative file the attribute names.
+    fn path_attr(&self, node: Node) -> Option<String> {
+        let mut prev = node.prev_sibling();
+        while let Some(p) = prev.filter(|p| p.kind() == "attribute_item") {
+            let text = self.text(p);
+            if text.contains("path") && text.contains('"') {
+                let file = text.split('"').nth(1)?;
+                let mut parts: Vec<&str> = self.dir.split('/').filter(|s| !s.is_empty()).collect();
+                for seg in file.split('/') {
+                    match seg {
+                        "." | "" => {}
+                        ".." => {
+                            parts.pop();
+                        }
+                        s => parts.push(s),
+                    }
+                }
+                return Some(parts.join("/"));
+            }
+            prev = p.prev_sibling();
+        }
+        None
     }
 
     /// Rewrite a `::` path into the dotted model: `crate`, `self`, `super`, `Self` resolved.
@@ -1084,6 +1144,7 @@ impl State<'_> {
             Names {
                 module: self.module,
                 children: self.children,
+                dir: self.dir,
             },
             scope,
             row,

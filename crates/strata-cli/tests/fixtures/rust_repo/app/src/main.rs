@@ -179,3 +179,7 @@ struct Cfg {
     field: i32,
     n: i32,
 }
+
+fn chain() -> Vec<i32> {
+    vec![1].into_iter().map(double).collect::<Vec<_>>()
+}

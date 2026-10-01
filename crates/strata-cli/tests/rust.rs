@@ -280,6 +280,7 @@ fn functions_used_as_values_and_in_attributes_are_references() {
         vec![
             "resolved[value] app.main.Args -> app.main.double app/src/main.rs:102",
             "resolved[value] app.main.consts_and_values -> app.main.double app/src/main.rs:109",
+            "resolved[value] app.main.chain -> app.main.double app/src/main.rs:184",
         ]
     );
 }
@@ -486,4 +487,21 @@ fn nothing_in_the_fixture_is_left_unresolved() {
         .map(|e| format!("{} {} {} {}", e["kind"], e["path"], e["line"], e["callee"]))
         .collect();
     assert!(bad.is_empty(), "unresolved edges: {bad:#?}");
+}
+
+#[test]
+fn receiver_chains_of_turbofish_calls_are_not_skipped() {
+    assert!(refs("app.main.double").contains(
+        &"resolved[value] app.main.chain -> app.main.double app/src/main.rs:184".to_string()
+    ));
+}
+
+#[test]
+fn path_attribute_points_a_mod_declaration_at_another_file() {
+    assert_eq!(
+        run(&["callees", "app.tests.it.it3"]),
+        vec!["resolved app.tests.it.it3 -> app.helper.go app/tests/it.rs:17"]
+    );
+    assert!(run(&["symbols", "helper_alias"])
+        .contains(&"module helper_alias app/tests/it.rs:14".to_string()));
 }
