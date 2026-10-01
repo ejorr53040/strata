@@ -9,6 +9,7 @@ use crate::graph::Source;
 use serde::Serialize;
 use tree_sitter::{Node, Parser};
 
+/// Files the markup index reads: HTML pages and CSS stylesheets.
 pub fn is_markup(path: &str) -> bool {
     is_html(path) || is_css(path)
 }
@@ -21,6 +22,7 @@ fn is_css(path: &str) -> bool {
     path.ends_with(".css")
 }
 
+/// An HTML element by its start tag, with its literal id and classes.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Element {
     pub path: String,
@@ -47,6 +49,8 @@ pub struct Rule {
     pub properties: Vec<String>,
     #[serde(skip)]
     sheet: usize,
+    #[serde(skip)]
+    parsed: Selector,
     /// The `@media` query gating the rule, when it can be false (`print`, `(min-width: 40em)`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media: Option<String>,
@@ -56,8 +60,9 @@ pub struct Rule {
     conditional: bool,
 }
 
+/// A rule (or an inline `style` attribute) by selector and location.
 #[derive(Debug, Serialize)]
-pub struct Winner {
+pub struct RuleLoc {
     pub selector: String,
     pub path: String,
     pub line: usize,
@@ -69,9 +74,10 @@ pub struct Cascade<'a> {
     /// Matching rules from lowest to highest precedence by specificity, then source order.
     pub rules: Vec<&'a Rule>,
     /// For each property, the rule whose declaration applies (`!important` first).
-    pub winners: std::collections::BTreeMap<String, Winner>,
+    pub winners: std::collections::BTreeMap<String, RuleLoc>,
 }
 
+/// Every indexed page's elements and every stylesheet's rules, plus what links them.
 #[derive(Debug, Default)]
 pub struct Markup {
     pub elements: Vec<Element>,
@@ -108,6 +114,7 @@ pub struct Page {
     pub classes: Vec<String>,
 }
 
+/// One stylesheet's rules, for listing.
 #[derive(Debug, Serialize)]
 pub struct Stylesheet {
     /// A `.css` file, or the HTML file holding `<style>` blocks.
@@ -115,6 +122,7 @@ pub struct Stylesheet {
     pub rules: Vec<SheetRule>,
 }
 
+/// A rule as listed under its stylesheet.
 #[derive(Debug, Serialize)]
 pub struct SheetRule {
     pub selector: String,
@@ -151,6 +159,7 @@ enum SheetRef {
     Inline(usize),
 }
 
+/// Index the HTML and CSS among `sources`, and the DOM lookups in their scripts.
 pub fn build(sources: &[Source]) -> Markup {
     let mut m = Markup::default();
     for s in sources.iter().filter(|s| is_css(&s.path)) {
@@ -297,6 +306,7 @@ impl Markup {
                     conditional: media.is_some() || parsed.compounds.iter().any(|c| c.conditional),
                     media: media.clone(),
                     sheet,
+                    parsed,
                 });
             }
         }
@@ -373,8 +383,7 @@ impl Markup {
                 .enumerate()
                 .filter_map(|(ri, r)| {
                     let order = sheets.iter().position(|&s| s == r.sheet)?;
-                    let sel = parse(&r.selector)?;
-                    self.matches(&sel, i)
+                    self.matches(&r.parsed, i)
                         .then_some((ri, (r.specificity, order, ri)))
                 })
                 .collect();
@@ -397,7 +406,7 @@ impl Markup {
                         best.insert(name.clone(), rank);
                         winners.insert(
                             name,
-                            Winner {
+                            RuleLoc {
                                 selector: r.selector.clone(),
                                 path: r.path.clone(),
                                 line: r.line,
@@ -426,7 +435,7 @@ impl Markup {
                     best.insert(name.clone(), rank);
                     winners.insert(
                         name,
-                        Winner {
+                        RuleLoc {
                             selector: "style attribute".into(),
                             path: e.path.clone(),
                             line: e.line,
@@ -519,9 +528,7 @@ impl Markup {
                 if !sheets.contains(&rule.sheet) {
                     continue;
                 }
-                let Some(rs) = parse(&rule.selector) else {
-                    continue;
-                };
+                let rs = &rule.parsed;
                 if targets
                     .iter()
                     .any(|t| rs.compounds.iter().any(|c| c.mentions(t)))
@@ -535,6 +542,7 @@ impl Markup {
         out
     }
 
+    /// Every page with what it loads and the ids and classes it names.
     pub fn pages(&self) -> Vec<Page> {
         self.pages
             .keys()
@@ -598,7 +606,7 @@ impl Markup {
 
     /// Rules whose selector matches no element on any page that loads their stylesheet. An
     /// element may also carry any class a script on its page adds (`classList.add/toggle`).
-    pub fn unused_selectors(&self) -> Vec<Winner> {
+    pub fn unused_selectors(&self) -> Vec<RuleLoc> {
         let loaded: Vec<(&String, Vec<usize>, Vec<String>)> = self
             .pages
             .keys()
@@ -607,18 +615,16 @@ impl Markup {
         self.rules
             .iter()
             .filter(|r| {
-                let Some(sel) = parse(&r.selector) else {
-                    return false;
-                };
+                let sel = &r.parsed;
                 !self.elements.iter().enumerate().any(|(i, e)| {
                     loaded.iter().any(|(p, sheets, scripted)| {
                         **p == e.path
                             && sheets.contains(&r.sheet)
-                            && self.match_from(&sel, sel.compounds.len() - 1, i, scripted)
+                            && self.match_from(sel, sel.compounds.len() - 1, i, scripted)
                     })
                 })
             })
-            .map(|r| Winner {
+            .map(|r| RuleLoc {
                 selector: r.selector.clone(),
                 path: r.path.clone(),
                 line: r.line,
@@ -817,9 +823,7 @@ impl Html<'_> {
         });
         self.out.elements.len() - 1
     }
-}
 
-impl Html<'_> {
     /// A `<style>` block: a stylesheet of its own, in document order among the links.
     fn style(&mut self, node: Node) {
         let mut c = node.walk();
@@ -901,7 +905,7 @@ enum Comb {
     Sibling,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 struct Compound {
     /// Specificity of pseudo-classes and pseudo-elements, which do not otherwise constrain the
     /// match (`:hover` is assumed, `:is(..)` counts its most specific argument).
@@ -916,7 +920,7 @@ struct Compound {
     conditional: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct AttrSel {
     name: String,
     /// Operator (`=`, `~=`, `|=`, `^=`, `$=`, `*=`) and value; `None` tests presence.
@@ -943,7 +947,7 @@ impl AttrSel {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Selector {
     compounds: Vec<Compound>,
     /// `combinators[i]` joins `compounds[i]` and `compounds[i + 1]`.

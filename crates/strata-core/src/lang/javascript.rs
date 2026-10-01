@@ -172,6 +172,15 @@ impl State<'_> {
         }
     }
 
+    /// Qualname of the innermost enclosing function, `None` at module level.
+    fn enclosing(&self) -> Option<String> {
+        self.scope
+            .iter()
+            .rev()
+            .find(|s| s.1 == Scope::Func)
+            .map(|s| s.0.clone())
+    }
+
     fn call(&mut self, node: Node, callee: Option<Node>) {
         let Some(callee) = callee else {
             return;
@@ -182,12 +191,7 @@ impl State<'_> {
             Some(rest) => format!("self.{rest}"),
             None => text,
         };
-        let enclosing = self
-            .scope
-            .iter()
-            .rev()
-            .find(|s| s.1 == Scope::Func)
-            .map(|s| s.0.clone());
+        let enclosing = self.enclosing();
         self.facts.calls.push(Call {
             enclosing,
             callee,
@@ -251,12 +255,7 @@ impl State<'_> {
             "classList.replace" => 2,
             _ => 1,
         };
-        let enclosing = self
-            .scope
-            .iter()
-            .rev()
-            .find(|s| s.1 == Scope::Func)
-            .map(|s| s.0.clone());
+        let enclosing = self.enclosing();
         for arg in args.into_iter().take(take) {
             let selector = self.literal(arg).map(|s| to_selector(&s)).ok_or_else(|| {
                 self.text(arg)

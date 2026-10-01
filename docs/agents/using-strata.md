@@ -46,13 +46,23 @@ unknown type (`x.run()`) list every indexed method named `run`. Standard-library
 
 ## HTML and CSS
 
-Markup has its own index: `matched_elements` (what a selector hits), `matching_rules` (the
-cascade for one element, given as `path:line` of its start tag) and `unused_selectors`. A
-page's rules are the stylesheets it links (relative, root or Jinja `url_for(.., filename=..)`
-hrefs) and its `<style>` blocks, in document order; a page that names none gets every
-stylesheet. State rules (`:hover`, `:checked`) and pseudo-elements are listed but never win a
-property. Elements built by JavaScript are not in the index, so `unused_selectors` can list
-selectors that script-built DOM uses.
+Markup has its own index:
+
+- `pages` and `stylesheets`: what each page loads and names, and every rule by sheet.
+- `matched_elements`: the elements a selector can hit.
+- `matching_rules`: the cascade for one element, given as `path:line` of its start tag, with
+  each property's winner.
+- `unused_selectors`: rules that match nothing on the pages that load them.
+- `selector_refs`: JavaScript DOM lookups (`querySelector`, `getElementById`, `classList.*`)
+  linked to the elements and rules they reach.
+
+A page's rules are the stylesheets it links (relative, root or Jinja `url_for(.., filename=..)`
+hrefs), what those `@import`, and its `<style>` blocks, in document order; a page that names
+none gets every stylesheet. An inline `style` attribute outranks normal rules. Rules under a
+state (`:hover`), a pseudo-element or an `@media` query other than `screen`/`all` are listed
+but never win a property. Classes a page's scripts add with `classList.add/toggle` count as
+present for `unused_selectors`, but elements built from HTML strings (`innerHTML`) are not in
+the index, so check a listed selector before deleting it.
 
 ## Limits
 

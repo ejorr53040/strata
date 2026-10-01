@@ -64,7 +64,7 @@ pub fn catalog() -> Vec<Value> {
         }),
         json!({
             "name": "matching_rules",
-            "description": "CSS rules that can apply to the HTML element(s) whose start tag is at `path:line`, from lowest to highest precedence (specificity, then source order across the page's linked and inline stylesheets), and for each property the rule that wins (!important first; state rules like :hover and pseudo-elements are listed but never win).",
+            "description": "CSS rules that can apply to the HTML element(s) whose start tag is at `path:line`, from lowest to highest precedence (specificity, then source order across the page's linked and inline stylesheets), and for each property the rule that wins (!important first, then an inline style attribute; rules under :hover-style states, pseudo-elements or an @media query other than screen/all are listed but never win).",
             "input_schema": {
                 "type": "object",
                 "properties": {"element": {"type": "string", "description": "`path:line` of the element's start tag, e.g. `templates/index.html:12`"}},
@@ -142,7 +142,7 @@ pub fn call(root: &Path, opts: &WalkOptions, name: &str, args: &Value) -> Result
             ))))
         }
         "matched_elements" => {
-            let m = crate::markup::build(&graph::load_with(root, opts));
+            let m = markup(root, opts);
             Ok(json!(m.matched_elements(str_arg("selector")?)))
         }
         "matching_rules" => {
@@ -151,24 +151,18 @@ pub fn call(root: &Path, opts: &WalkOptions, name: &str, args: &Value) -> Result
                 .rsplit_once(':')
                 .and_then(|(p, l)| Some((p, l.parse::<usize>().ok()?)))
                 .ok_or_else(|| format!("`element` must be `path:line`, got `{element}`"))?;
-            let m = crate::markup::build(&graph::load_with(root, opts));
+            let m = markup(root, opts);
             Ok(json!(m.matching_rules(path, line)))
         }
-        "unused_selectors" => Ok(json!(
-            crate::markup::build(&graph::load_with(root, opts)).unused_selectors()
-        )),
+        "unused_selectors" => Ok(json!(markup(root, opts).unused_selectors())),
         "selector_refs" => {
-            let m = crate::markup::build(&graph::load_with(root, opts));
+            let m = markup(root, opts);
             Ok(json!(
                 m.selector_refs(args.get("path").and_then(Value::as_str))
             ))
         }
-        "pages" => Ok(json!(
-            crate::markup::build(&graph::load_with(root, opts)).pages()
-        )),
-        "stylesheets" => Ok(json!(
-            crate::markup::build(&graph::load_with(root, opts)).stylesheets()
-        )),
+        "pages" => Ok(json!(markup(root, opts).pages())),
+        "stylesheets" => Ok(json!(markup(root, opts).stylesheets())),
         "references" => {
             let g = graph::build(&graph::load_with(root, opts), &[]);
             Ok(json!(g.references(str_arg("symbol")?)))
@@ -211,4 +205,8 @@ fn overview(root: &Path, opts: &WalkOptions) -> Value {
         "symbols": symbols,
         "edges": edges,
     })
+}
+
+fn markup(root: &Path, opts: &WalkOptions) -> crate::markup::Markup {
+    crate::markup::build(&graph::load_with(root, opts))
 }
