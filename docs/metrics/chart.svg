@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 500" width="760" height="500" role="img" aria-labelledby="t d">
 <title id="t">{title}: recall per run</title>
-<desc id="d">11 runs. Recall of symbols, call sites and call targets against rust-analyzer, and code-review finding counts. Values are in the table below the chart.</desc>
+<desc id="d">12 runs. Recall of symbols, call sites and call targets against rust-analyzer, and code-review finding counts. Values are in the table below the chart.</desc>
 <style>
 .bg{fill:#fcfcfb} text{font:12px system-ui,sans-serif;fill:#52514e} .h{font-weight:600;fill:#0b0b0b;font-size:13px}
 .v{fill:#0b0b0b;font-weight:600} .grid{stroke:#e4e3df;stroke-width:1} .ln{fill:none;stroke-width:2;stroke-linejoin:round}
@@ -28,79 +28,85 @@
 <text x="56" y="114.0" text-anchor="end">95</text>
 <line class="grid" x1="64" x2="640" y1="70.0" y2="70.0"/>
 <text x="56" y="74.0" text-anchor="end">100</text>
-<polyline class="ln s1" points="64.0,70.0 121.6,70.0 179.2,70.0 236.8,70.0 294.4,70.0 352.0,70.0 409.6,70.0 467.2,70.0 524.8,70.0 582.4,70.0 640.0,70.0"/>
+<polyline class="ln s1" points="64.0,70.0 116.4,70.0 168.7,70.0 221.1,70.0 273.5,70.0 325.8,70.0 378.2,70.0 430.5,70.0 482.9,70.0 535.3,70.0 587.6,70.0 640.0,70.0"/>
 <circle class="dot d1" cx="64.0" cy="70.0" r="4"><title>run 1 (b81eed0): Symbols recall 100.0%</title></circle>
-<circle class="dot d1" cx="121.6" cy="70.0" r="4"><title>run 2 (c46e806): Symbols recall 100.0%</title></circle>
-<circle class="dot d1" cx="179.2" cy="70.0" r="4"><title>run 3 (a924027): Symbols recall 100.0%</title></circle>
-<circle class="dot d1" cx="236.8" cy="70.0" r="4"><title>run 4 (d3b8b09): Symbols recall 100.0%</title></circle>
-<circle class="dot d1" cx="294.4" cy="70.0" r="4"><title>run 5 (7ffffdb): Symbols recall 100.0%</title></circle>
-<circle class="dot d1" cx="352.0" cy="70.0" r="4"><title>run 6 (7035f7a): Symbols recall 100.0%</title></circle>
-<circle class="dot d1" cx="409.6" cy="70.0" r="4"><title>run 7 (2027020): Symbols recall 100.0%</title></circle>
-<circle class="dot d1" cx="467.2" cy="70.0" r="4"><title>run 8 (b319c9b): Symbols recall 100.0%</title></circle>
-<circle class="dot d1" cx="524.8" cy="70.0" r="4"><title>run 9 (b39716f): Symbols recall 100.0%</title></circle>
-<circle class="dot d1" cx="582.4" cy="70.0" r="4"><title>run 10 (fe13479): Symbols recall 100.0%</title></circle>
-<circle class="dot d1" cx="640.0" cy="70.0" r="4"><title>run 11 (35ccb60): Symbols recall 100.0%</title></circle>
-<polyline class="ln s2" points="64.0,70.0 121.6,74.4 179.2,70.0 236.8,70.0 294.4,72.7 352.0,72.7 409.6,70.0 467.2,70.0 524.8,70.0 582.4,70.0 640.0,70.0"/>
+<circle class="dot d1" cx="116.4" cy="70.0" r="4"><title>run 2 (c46e806): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="168.7" cy="70.0" r="4"><title>run 3 (a924027): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="221.1" cy="70.0" r="4"><title>run 4 (d3b8b09): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="273.5" cy="70.0" r="4"><title>run 5 (7ffffdb): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="325.8" cy="70.0" r="4"><title>run 6 (7035f7a): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="378.2" cy="70.0" r="4"><title>run 7 (2027020): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="430.5" cy="70.0" r="4"><title>run 8 (b319c9b): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="482.9" cy="70.0" r="4"><title>run 9 (b39716f): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="535.3" cy="70.0" r="4"><title>run 10 (fe13479): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="587.6" cy="70.0" r="4"><title>run 11 (35ccb60): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="640.0" cy="70.0" r="4"><title>run 12 (2dd0724): Symbols recall 100.0%</title></circle>
+<polyline class="ln s2" points="64.0,70.0 116.4,74.4 168.7,70.0 221.1,70.0 273.5,72.7 325.8,72.7 378.2,70.0 430.5,70.0 482.9,70.0 535.3,70.0 587.6,70.0 640.0,70.0"/>
 <circle class="dot d2" cx="64.0" cy="70.0" r="4"><title>run 1 (b81eed0): Call sites recall 100.0%</title></circle>
-<circle class="dot d2" cx="121.6" cy="74.4" r="4"><title>run 2 (c46e806): Call sites recall 99.5%</title></circle>
-<circle class="dot d2" cx="179.2" cy="70.0" r="4"><title>run 3 (a924027): Call sites recall 100.0%</title></circle>
-<circle class="dot d2" cx="236.8" cy="70.0" r="4"><title>run 4 (d3b8b09): Call sites recall 100.0%</title></circle>
-<circle class="dot d2" cx="294.4" cy="72.7" r="4"><title>run 5 (7ffffdb): Call sites recall 99.7%</title></circle>
-<circle class="dot d2" cx="352.0" cy="72.7" r="4"><title>run 6 (7035f7a): Call sites recall 99.7%</title></circle>
-<circle class="dot d2" cx="409.6" cy="70.0" r="4"><title>run 7 (2027020): Call sites recall 100.0%</title></circle>
-<circle class="dot d2" cx="467.2" cy="70.0" r="4"><title>run 8 (b319c9b): Call sites recall 100.0%</title></circle>
-<circle class="dot d2" cx="524.8" cy="70.0" r="4"><title>run 9 (b39716f): Call sites recall 100.0%</title></circle>
-<circle class="dot d2" cx="582.4" cy="70.0" r="4"><title>run 10 (fe13479): Call sites recall 100.0%</title></circle>
-<circle class="dot d2" cx="640.0" cy="70.0" r="4"><title>run 11 (35ccb60): Call sites recall 100.0%</title></circle>
-<polyline class="ln s3" points="64.0,145.7 121.6,89.8 179.2,70.0 236.8,70.0 294.4,72.7 352.0,72.7 409.6,70.0 467.2,70.0 524.8,71.1 582.4,71.0 640.0,71.0"/>
+<circle class="dot d2" cx="116.4" cy="74.4" r="4"><title>run 2 (c46e806): Call sites recall 99.5%</title></circle>
+<circle class="dot d2" cx="168.7" cy="70.0" r="4"><title>run 3 (a924027): Call sites recall 100.0%</title></circle>
+<circle class="dot d2" cx="221.1" cy="70.0" r="4"><title>run 4 (d3b8b09): Call sites recall 100.0%</title></circle>
+<circle class="dot d2" cx="273.5" cy="72.7" r="4"><title>run 5 (7ffffdb): Call sites recall 99.7%</title></circle>
+<circle class="dot d2" cx="325.8" cy="72.7" r="4"><title>run 6 (7035f7a): Call sites recall 99.7%</title></circle>
+<circle class="dot d2" cx="378.2" cy="70.0" r="4"><title>run 7 (2027020): Call sites recall 100.0%</title></circle>
+<circle class="dot d2" cx="430.5" cy="70.0" r="4"><title>run 8 (b319c9b): Call sites recall 100.0%</title></circle>
+<circle class="dot d2" cx="482.9" cy="70.0" r="4"><title>run 9 (b39716f): Call sites recall 100.0%</title></circle>
+<circle class="dot d2" cx="535.3" cy="70.0" r="4"><title>run 10 (fe13479): Call sites recall 100.0%</title></circle>
+<circle class="dot d2" cx="587.6" cy="70.0" r="4"><title>run 11 (35ccb60): Call sites recall 100.0%</title></circle>
+<circle class="dot d2" cx="640.0" cy="70.0" r="4"><title>run 12 (2dd0724): Call sites recall 100.0%</title></circle>
+<polyline class="ln s3" points="64.0,145.7 116.4,89.8 168.7,70.0 221.1,70.0 273.5,72.7 325.8,72.7 378.2,70.0 430.5,70.0 482.9,71.1 535.3,71.0 587.6,71.0 640.0,71.0"/>
 <circle class="dot d3" cx="64.0" cy="145.7" r="4"><title>run 1 (b81eed0): Targets recall 90.5%</title></circle>
-<circle class="dot d3" cx="121.6" cy="89.8" r="4"><title>run 2 (c46e806): Targets recall 97.5%</title></circle>
-<circle class="dot d3" cx="179.2" cy="70.0" r="4"><title>run 3 (a924027): Targets recall 100.0%</title></circle>
-<circle class="dot d3" cx="236.8" cy="70.0" r="4"><title>run 4 (d3b8b09): Targets recall 100.0%</title></circle>
-<circle class="dot d3" cx="294.4" cy="72.7" r="4"><title>run 5 (7ffffdb): Targets recall 99.7%</title></circle>
-<circle class="dot d3" cx="352.0" cy="72.7" r="4"><title>run 6 (7035f7a): Targets recall 99.7%</title></circle>
-<circle class="dot d3" cx="409.6" cy="70.0" r="4"><title>run 7 (2027020): Targets recall 100.0%</title></circle>
-<circle class="dot d3" cx="467.2" cy="70.0" r="4"><title>run 8 (b319c9b): Targets recall 100.0%</title></circle>
-<circle class="dot d3" cx="524.8" cy="71.1" r="4"><title>run 9 (b39716f): Targets recall 99.9%</title></circle>
-<circle class="dot d3" cx="582.4" cy="71.0" r="4"><title>run 10 (fe13479): Targets recall 99.9%</title></circle>
-<circle class="dot d3" cx="640.0" cy="71.0" r="4"><title>run 11 (35ccb60): Targets recall 99.9%</title></circle>
+<circle class="dot d3" cx="116.4" cy="89.8" r="4"><title>run 2 (c46e806): Targets recall 97.5%</title></circle>
+<circle class="dot d3" cx="168.7" cy="70.0" r="4"><title>run 3 (a924027): Targets recall 100.0%</title></circle>
+<circle class="dot d3" cx="221.1" cy="70.0" r="4"><title>run 4 (d3b8b09): Targets recall 100.0%</title></circle>
+<circle class="dot d3" cx="273.5" cy="72.7" r="4"><title>run 5 (7ffffdb): Targets recall 99.7%</title></circle>
+<circle class="dot d3" cx="325.8" cy="72.7" r="4"><title>run 6 (7035f7a): Targets recall 99.7%</title></circle>
+<circle class="dot d3" cx="378.2" cy="70.0" r="4"><title>run 7 (2027020): Targets recall 100.0%</title></circle>
+<circle class="dot d3" cx="430.5" cy="70.0" r="4"><title>run 8 (b319c9b): Targets recall 100.0%</title></circle>
+<circle class="dot d3" cx="482.9" cy="71.1" r="4"><title>run 9 (b39716f): Targets recall 99.9%</title></circle>
+<circle class="dot d3" cx="535.3" cy="71.0" r="4"><title>run 10 (fe13479): Targets recall 99.9%</title></circle>
+<circle class="dot d3" cx="587.6" cy="71.0" r="4"><title>run 11 (35ccb60): Targets recall 99.9%</title></circle>
+<circle class="dot d3" cx="640.0" cy="71.0" r="4"><title>run 12 (2dd0724): Targets recall 99.9%</title></circle>
 <text x="652" y="74.0">Call sites 100.0%</text>
 <text x="652" y="88.0">Symbols 100.0%</text>
 <text x="652" y="102.0">Targets 99.9%</text>
 <text class="h" x="64" y="274">Code-review findings per run (lower is better)</text>
 <line class="grid" x1="64" x2="640" y1="430" y2="430"/>
 <text x="64.0" y="424" text-anchor="middle">n/a</text>
-<rect class="bar" x="105.6" y="318.0" width="32" height="112.0" rx="4"><title>run 2 (c46e806): 31 findings — standards 11, spec 11, correctness 9</title></rect>
-<text class="v" x="121.6" y="313.0" text-anchor="middle">31</text>
-<text x="179.2" y="424" text-anchor="middle">n/a</text>
-<text x="236.8" y="424" text-anchor="middle">n/a</text>
-<text x="294.4" y="424" text-anchor="middle">n/a</text>
-<text x="352.0" y="424" text-anchor="middle">n/a</text>
-<text x="409.6" y="424" text-anchor="middle">n/a</text>
-<text x="467.2" y="424" text-anchor="middle">n/a</text>
-<text x="524.8" y="424" text-anchor="middle">n/a</text>
-<text x="582.4" y="424" text-anchor="middle">n/a</text>
+<rect class="bar" x="100.4" y="318.0" width="32" height="112.0" rx="4"><title>run 2 (c46e806): 31 findings — standards 11, spec 11, correctness 9</title></rect>
+<text class="v" x="116.4" y="313.0" text-anchor="middle">31</text>
+<text x="168.7" y="424" text-anchor="middle">n/a</text>
+<text x="221.1" y="424" text-anchor="middle">n/a</text>
+<text x="273.5" y="424" text-anchor="middle">n/a</text>
+<text x="325.8" y="424" text-anchor="middle">n/a</text>
+<text x="378.2" y="424" text-anchor="middle">n/a</text>
+<text x="430.5" y="424" text-anchor="middle">n/a</text>
+<text x="482.9" y="424" text-anchor="middle">n/a</text>
+<text x="535.3" y="424" text-anchor="middle">n/a</text>
+<text x="587.6" y="424" text-anchor="middle">n/a</text>
 <text x="640.0" y="424" text-anchor="middle">n/a</text>
 <text x="64.0" y="450" text-anchor="middle">run 1</text>
 <text x="64.0" y="466" text-anchor="middle">b81eed0</text>
-<text x="121.6" y="450" text-anchor="middle">run 2</text>
-<text x="121.6" y="466" text-anchor="middle">c46e806</text>
-<text x="179.2" y="450" text-anchor="middle">run 3</text>
-<text x="179.2" y="466" text-anchor="middle">a924027</text>
-<text x="236.8" y="450" text-anchor="middle">run 4</text>
-<text x="236.8" y="466" text-anchor="middle">d3b8b09</text>
-<text x="294.4" y="450" text-anchor="middle">run 5</text>
-<text x="294.4" y="466" text-anchor="middle">7ffffdb</text>
-<text x="352.0" y="450" text-anchor="middle">run 6</text>
-<text x="352.0" y="466" text-anchor="middle">7035f7a</text>
-<text x="409.6" y="450" text-anchor="middle">run 7</text>
-<text x="409.6" y="466" text-anchor="middle">2027020</text>
-<text x="467.2" y="450" text-anchor="middle">run 8</text>
-<text x="467.2" y="466" text-anchor="middle">b319c9b</text>
-<text x="524.8" y="450" text-anchor="middle">run 9</text>
-<text x="524.8" y="466" text-anchor="middle">b39716f</text>
-<text x="582.4" y="450" text-anchor="middle">run 10</text>
-<text x="582.4" y="466" text-anchor="middle">fe13479</text>
-<text x="640.0" y="450" text-anchor="middle">run 11</text>
-<text x="640.0" y="466" text-anchor="middle">35ccb60</text>
+<text x="116.4" y="450" text-anchor="middle">run 2</text>
+<text x="116.4" y="466" text-anchor="middle">c46e806</text>
+<text x="168.7" y="450" text-anchor="middle">run 3</text>
+<text x="168.7" y="466" text-anchor="middle">a924027</text>
+<text x="221.1" y="450" text-anchor="middle">run 4</text>
+<text x="221.1" y="466" text-anchor="middle">d3b8b09</text>
+<text x="273.5" y="450" text-anchor="middle">run 5</text>
+<text x="273.5" y="466" text-anchor="middle">7ffffdb</text>
+<text x="325.8" y="450" text-anchor="middle">run 6</text>
+<text x="325.8" y="466" text-anchor="middle">7035f7a</text>
+<text x="378.2" y="450" text-anchor="middle">run 7</text>
+<text x="378.2" y="466" text-anchor="middle">2027020</text>
+<text x="430.5" y="450" text-anchor="middle">run 8</text>
+<text x="430.5" y="466" text-anchor="middle">b319c9b</text>
+<text x="482.9" y="450" text-anchor="middle">run 9</text>
+<text x="482.9" y="466" text-anchor="middle">b39716f</text>
+<text x="535.3" y="450" text-anchor="middle">run 10</text>
+<text x="535.3" y="466" text-anchor="middle">fe13479</text>
+<text x="587.6" y="450" text-anchor="middle">run 11</text>
+<text x="587.6" y="466" text-anchor="middle">35ccb60</text>
+<text x="640.0" y="450" text-anchor="middle">run 12</text>
+<text x="640.0" y="466" text-anchor="middle">2dd0724</text>
 </svg>
