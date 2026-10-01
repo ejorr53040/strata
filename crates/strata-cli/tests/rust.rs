@@ -356,6 +356,7 @@ fn modules_are_symbols_and_path_segments_and_uses_are_edges_to_them() {
             "resolved[import] shapes.<module> -> shapes.util shapes/src/lib.rs:50",
             "resolved[path] shapes.via_inline -> shapes.util shapes/src/lib.rs:115",
             "resolved[import] shapes.util.inline_tests -> shapes.util shapes/src/util.rs:17",
+            "resolved[import] shapes.util.cyc -> shapes.util shapes/src/util.rs:40",
         ]
     );
 }
@@ -487,7 +488,8 @@ fn nothing_in_the_fixture_is_left_unresolved() {
         serde_json::from_str(&run(&["call", "edges", "{}"]).join("")).unwrap();
     let bad: Vec<String> = v
         .iter()
-        .filter(|e| e["state"] == "unresolved")
+        // `cyc::f` calls a name that is deliberately defined nowhere (the loop-guard test).
+        .filter(|e| e["state"] == "unresolved" && e["callee"] != "not_defined_here")
         .map(|e| format!("{} {} {} {}", e["kind"], e["path"], e["line"], e["callee"]))
         .collect();
     assert!(bad.is_empty(), "unresolved edges: {bad:#?}");
@@ -584,4 +586,16 @@ fn path_segments_in_patterns_are_not_local_bindings() {
     assert!(refs("app.main.pick2").contains(
         &"resolved[value] app.main.pattern_path -> app.main.pick2 app/src/main.rs:214".to_string()
     ));
+}
+
+#[test]
+fn an_import_that_points_back_at_its_own_module_does_not_loop() {
+    // `use super::X` inside an inline module where X is not defined (e.g. made by a macro)
+    // names the module itself; resolving it must terminate and leave the call unresolved.
+    let lines = run(&["callees", "shapes.util.cyc.f"]);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0].starts_with("unresolved shapes.util.cyc.f -> not_defined_here"),
+        "{lines:?}"
+    );
 }

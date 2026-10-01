@@ -313,7 +313,7 @@ impl Index<'_> {
                     } else if self.modules.contains_key(&full) {
                         Lookup::Module(full)
                     } else if self.modules.contains_key(&imp.module) {
-                        self.follow_reexport(&imp.module, n, 0)
+                        self.follow_reexport(&imp.module, n, depth)
                     } else if self.is_unindexed(&imp.module) {
                         Lookup::Unindexed(format!("from {} import {n}", imp.module))
                     } else {
@@ -360,9 +360,9 @@ impl Index<'_> {
         if depth > 8 {
             return not_found();
         }
-        match self.lookup(module, name) {
+        // The guard must travel with the lookup: `use super::X` can name the module itself.
+        match self.lookup_in(module, name, depth + 1) {
             Lookup::Missing => not_found(),
-            // Importing from a module that imports from itself must not loop.
             Lookup::NotInModule(..) => not_found(),
             other => other,
         }

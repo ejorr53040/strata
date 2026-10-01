@@ -35,3 +35,11 @@ impl crate::Circle {
 pub fn double_it(x: f64) -> f64 {
     x * 2.0
 }
+
+mod cyc {
+    use super::not_defined_here;
+
+    fn f() {
+        not_defined_here();
+    }
+}
