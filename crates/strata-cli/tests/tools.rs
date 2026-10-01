@@ -78,3 +78,28 @@ fn guide_tells_agents_how_to_use_the_tools() {
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("strata call") && text.contains("candidate"));
 }
+
+#[test]
+fn edges_dumps_every_edge_with_a_kind() {
+    let v = json(&strata(&["call", "edges", "{}"]));
+    let edges = v.as_array().unwrap();
+    assert!(edges.len() > 10);
+    assert!(edges.iter().all(|e| e["kind"].is_string()));
+    assert!(edges.iter().any(|e| e["kind"] == "call"));
+}
+
+#[test]
+fn references_lists_every_kind_of_use_of_a_symbol() {
+    let v = json(&strata(&[
+        "call",
+        "references",
+        r#"{"symbol":"shapes.util.square"}"#,
+    ]));
+    let edges = v.as_array().unwrap();
+    assert!(edges.len() >= 2);
+    assert!(edges.iter().all(|e| e["targets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|t| t == "shapes.util.square")));
+}

@@ -43,6 +43,16 @@ pub fn catalog() -> Vec<Value> {
             "input_schema": sym("Fully qualified id or a unique dotted suffix, e.g. `graph.build`"),
         }),
         json!({
+            "name": "references",
+            "description": "Every connection of any kind (call, and as depth grows: type use, value use, field, variant, impl, import) whose targets include the symbol.",
+            "input_schema": sym("Fully qualified id or a unique dotted suffix"),
+        }),
+        json!({
+            "name": "edges",
+            "description": "Dump the whole connection graph: every edge of every kind with state, targets and location. Large; prefer callers/callees/references for a single symbol.",
+            "input_schema": none,
+        }),
+        json!({
             "name": "unindexed_files",
             "description": "Source files that were skipped and why (gitignore, strataignore, vendored, unsupported-language, parse-failure). Check this when a symbol you expect is missing.",
             "input_schema": none,
@@ -69,6 +79,13 @@ pub fn call(root: &Path, opts: &WalkOptions, name: &str, args: &Value) -> Result
             let g = graph::build(&graph::load_with(root, opts), &[]);
             Ok(json!(g.callees(str_arg("symbol")?)))
         }
+        "references" => {
+            let g = graph::build(&graph::load_with(root, opts), &[]);
+            Ok(json!(g.references(str_arg("symbol")?)))
+        }
+        "edges" => Ok(json!(
+            graph::build(&graph::load_with(root, opts), &[]).edges
+        )),
         "unindexed_files" => {
             let w = walk::walk(root, opts);
             Ok(json!(w

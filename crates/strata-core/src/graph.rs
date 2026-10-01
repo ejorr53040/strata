@@ -33,8 +33,43 @@ impl EdgeState {
     }
 }
 
+/// What kind of connection an edge records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EdgeKind {
+    /// A call site.
+    Call,
+    /// A type named in a signature, field, binding, impl header or expression.
+    Type,
+    /// A function, const or static used as a value (not called).
+    Value,
+    /// A struct field access or initialiser.
+    Field,
+    /// An enum variant named in an expression or pattern.
+    Variant,
+    /// `impl Trait for Type`: one edge to the trait and one to the type.
+    Impl,
+    /// A `use` declaration binding a name.
+    Import,
+}
+
+impl EdgeKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            EdgeKind::Call => "call",
+            EdgeKind::Type => "type",
+            EdgeKind::Value => "value",
+            EdgeKind::Field => "field",
+            EdgeKind::Variant => "variant",
+            EdgeKind::Impl => "impl",
+            EdgeKind::Import => "import",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Edge {
+    pub kind: EdgeKind,
     pub caller: String,
     /// The callee expression as written at the call site.
     pub callee: String,
@@ -61,14 +96,13 @@ impl Edge {
             (_, Some(r)) => format!(" ({r})"),
             _ => String::new(),
         };
+        let state = match self.kind {
+            EdgeKind::Call => self.state.label().to_string(),
+            k => format!("{}[{}]", self.state.label(), k.label()),
+        };
         format!(
             "{} {} -> {}{} {}:{}",
-            self.state.label(),
-            self.caller,
-            what,
-            detail,
-            self.path,
-            self.line
+            state, self.caller, what, detail, self.path, self.line
         )
     }
 }
@@ -160,6 +194,7 @@ impl Index<'_> {
             None => qualify(module, "<module>"),
         };
         let mut edge = Edge {
+            kind: EdgeKind::Call,
             caller,
             callee: call.callee.clone(),
             state: EdgeState::Unresolved,
@@ -495,6 +530,14 @@ fn names(id: &str, sym: &str) -> bool {
 impl Graph {
     /// Call sites whose resolved or candidate targets include `sym`.
     pub fn callers(&self, sym: &str) -> Vec<&Edge> {
+        self.references(sym)
+            .into_iter()
+            .filter(|e| e.kind == EdgeKind::Call)
+            .collect()
+    }
+
+    /// Every connection of any kind whose resolved or candidate targets include `sym`.
+    pub fn references(&self, sym: &str) -> Vec<&Edge> {
         self.edges
             .iter()
             .filter(|e| e.targets.iter().any(|t| names(t, sym)))
@@ -505,7 +548,7 @@ impl Graph {
     pub fn callees(&self, sym: &str) -> Vec<&Edge> {
         self.edges
             .iter()
-            .filter(|e| names(&e.caller, sym))
+            .filter(|e| e.kind == EdgeKind::Call && names(&e.caller, sym))
             .collect()
     }
 }
@@ -705,6 +748,7 @@ def f(x):
     #[test]
     fn observed_is_a_valid_state_in_the_output_format() {
         let edge = Edge {
+            kind: EdgeKind::Call,
             caller: "m.f".into(),
             callee: "g".into(),
             state: EdgeState::Observed,

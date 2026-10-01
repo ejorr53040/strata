@@ -64,6 +64,7 @@ fn json_output_carries_state_and_targets() {
     assert_eq!(
         v,
         serde_json::json!([{
+            "kind": "call",
             "caller": "app.util.other",
             "callee": "helper",
             "state": "resolved",
