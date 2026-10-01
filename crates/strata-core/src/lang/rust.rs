@@ -228,6 +228,7 @@ impl State<'_> {
             "field_expression" => self.field_ref(child),
             "struct_expression" | "struct_pattern" => self.struct_fields(child),
             "attribute_item" | "inner_attribute_item" => self.attribute(child),
+            "visibility_modifier" => self.visibility(child),
             "type_identifier" => self.type_ref(child),
             "scoped_type_identifier" => self.scoped_ref(child, EdgeKind::Type, true),
             "scoped_identifier" => self.scoped_ref(child, EdgeKind::Value, true),
@@ -412,6 +413,26 @@ impl State<'_> {
                 }
             }
             _ => self.visit(node),
+        }
+    }
+
+    /// `pub(crate)`, `pub(super)`, `pub(in a::b)`: the restriction names a module.
+    fn visibility(&mut self, node: Node) {
+        let mut c = node.walk();
+        for ch in node.children(&mut c) {
+            match ch.kind() {
+                "crate" | "super" | "self" => {
+                    let expr = self.path(ch.kind());
+                    let expr = if ch.kind() == "self" {
+                        self.module.to_string()
+                    } else {
+                        expr
+                    };
+                    self.push_ref(expr, self.line(ch), EdgeKind::Path);
+                }
+                "scoped_identifier" => self.scoped_ref(ch, EdgeKind::Path, true),
+                _ => {}
+            }
         }
     }
 
@@ -698,7 +719,13 @@ impl State<'_> {
             "crate" => segs[0] = self.krate.to_string(),
             "self" if segs.len() > 1 => segs[0] = self.module.to_string(),
             "super" => {
-                let parent = self.module.rsplit_once('.').map_or(self.module, |p| p.0);
+                // Inside an inline `mod tests { .. }` the parent is the file's own module.
+                let inline = self.scope.iter().any(|s| s.1 == Scope::Mod);
+                let parent = if inline {
+                    self.module
+                } else {
+                    self.module.rsplit_once('.').map_or(self.module, |p| p.0)
+                };
                 segs[0] = parent.to_string();
             }
             "Self" => segs[0] = "self".to_string(),

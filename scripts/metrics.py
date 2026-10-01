@@ -293,13 +293,16 @@ def depth_scores(root, symbols, edges, defs, refs):
         desc = descriptors(sym)
         name = last_name(desc)
         window = LINE_WINDOW if cat == "call" else 0
+        # `crate`, `self` and `super` are keywords that stand for a module with another name.
+        keyword = name in ("crate", "self", "super")
         near = [
             e
             for e in by_path.get(rel, [])
             if e.get("kind", "call") in KINDS[cat]
             and line1 - window <= e["line"] <= line1
             and (
-                re.split(r"[.]", e["callee"])[-1] == name
+                keyword
+                or re.split(r"[.]", e["callee"])[-1] == name
                 or any(t.split(".")[-1] == name for t in e["targets"])
             )
         ]
@@ -309,7 +312,7 @@ def depth_scores(root, symbols, edges, defs, refs):
             missed.append((cat, rel, line1, name, "not seen"))
         if any(
             e["state"] in ("resolved", "candidate")
-            and any(target_matches(t, desc, name) for t in e["targets"])
+            and (keyword or any(target_matches(t, desc, name) for t in e["targets"]))
             for e in near
         ):
             right_n[cat] += 1

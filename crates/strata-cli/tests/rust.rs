@@ -345,6 +345,7 @@ fn modules_are_symbols_and_path_segments_and_uses_are_edges_to_them() {
             "resolved[path] shapes.<module> -> shapes.util shapes/src/lib.rs:1",
             "resolved[path] shapes.Circle.area -> shapes.util shapes/src/lib.rs:29",
             "resolved[import] shapes.<module> -> shapes.util shapes/src/lib.rs:50",
+            "resolved[import] shapes.util.inline_tests -> shapes.util shapes/src/util.rs:17",
         ]
     );
 }
@@ -358,5 +359,28 @@ fn imports_follow_reexports_to_the_definition() {
             "resolved app.main.reexport -> shapes.util.make app/src/main.rs:31",
             "resolved[import] shapes.<module> -> shapes.util.make shapes/src/lib.rs:50",
         ]
+    );
+}
+
+#[test]
+fn super_inside_an_inline_module_is_the_enclosing_file_module() {
+    let lines = refs("shapes.util");
+    assert!(
+        lines.contains(
+            &"resolved[import] shapes.util.inline_tests -> shapes.util shapes/src/util.rs:17"
+                .to_string()
+        ),
+        "{lines:#?}"
+    );
+}
+
+#[test]
+fn pub_crate_visibility_names_the_crate_root() {
+    let lines = refs("shapes");
+    assert!(
+        lines.contains(
+            &"resolved[path] shapes.util.hidden -> shapes shapes/src/util.rs:13".to_string()
+        ),
+        "{lines:#?}"
     );
 }

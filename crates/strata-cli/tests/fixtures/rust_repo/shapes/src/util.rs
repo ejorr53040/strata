@@ -9,3 +9,14 @@ pub fn make() -> Circle {
     println!("made");
     c
 }
+
+pub(crate) fn hidden() {}
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    fn t() {
+        square(2.0);
+    }
+}
