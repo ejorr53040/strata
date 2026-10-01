@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Measure strata against itself and keep a history, chart and README table up to date.
 
-    scripts/metrics.py run [--rev HEAD] [--label TEXT] [--review standards=N,spec=N,correctness=N]
+    scripts/metrics.py run [--rev HEAD] [--corpus self|cirrocumulus] [--corpus-rev HEAD] [--label TEXT]
+                            [--review standards=N,spec=N,correctness=N]
     scripts/metrics.py render
 
 `run` checks out <rev> into a throwaway worktree (so results are tied to a commit, and
@@ -30,11 +31,18 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-HIST = ROOT / "docs/metrics/history.jsonl"
-CHART = ROOT / "docs/metrics/chart.svg"
+METRICS = ROOT / "docs/metrics"
+# `self` scores strata on its own commit; any other corpus is an external repo scored with the
+# strata build under test. Add a corpus by adding an entry (its history/chart files follow).
+CORPORA = {
+    "self": {"title": "strata (self-analysis)", "path": None},
+    "cirrocumulus": {
+        "title": "cirrocumulus (external corpus)",
+        "path": Path(os.environ.get("CIRRO_PATH", Path.home() / "cs/cirrocumulus")),
+    },
+}
 README = ROOT / "README.md"
 WORK = ROOT / "target/metrics"
-MARK_START, MARK_END = "<!-- metrics:start -->", "<!-- metrics:end -->"
 LINE_WINDOW = 8  # a call expression may start this many lines above its method name
 
 
@@ -253,7 +261,28 @@ def recall(root, symbols, edges, defs, refs):
     }
 
 
-def measure(rev, label, verbose):
+def prepare_corpus(name, spec, tool_wt, corpus_rev):
+    """-> (root to index, corpus rev, corpus subject, env for rust-analyzer)."""
+    if spec["path"] is None:
+        return tool_wt, None, None, None
+    repo = spec["path"]
+    sha = sh(["git", "rev-parse", "--short", corpus_rev], cwd=repo).strip()
+    subject = sh(["git", "log", "-1", "--format=%s", corpus_rev], cwd=repo).strip()
+    root = WORK / f"corpus-{name}-{sha}"
+    shutil.rmtree(root, ignore_errors=True)
+    root.mkdir(parents=True)
+    # `git archive` exports the committed tree without touching the corpus repo (its build
+    # scripts may build into its own target/, so rust-analyzer must never run inside it).
+    archive = subprocess.run(["git", "archive", sha], cwd=repo, capture_output=True, check=True)
+    subprocess.run(["tar", "-x", "-C", str(root)], input=archive.stdout, check=True)
+    # A pinned toolchain without rust-analyzer would make the rustup proxy refuse to run it.
+    (root / "rust-toolchain.toml").unlink(missing_ok=True)
+    env = {**os.environ, "CARGO_TARGET_DIR": str(WORK / f"ra-target-{name}")}
+    return root, sha, subject, env
+
+
+def measure(rev, corpus, corpus_rev, label, verbose):
+    spec = CORPORA[corpus]
     sha = sh(["git", "rev-parse", "--short", rev], cwd=ROOT).strip()
     subject = sh(["git", "log", "-1", "--format=%s", rev], cwd=ROOT).strip()
     wt = WORK / f"wt-{sha}"
@@ -265,27 +294,29 @@ def measure(rev, label, verbose):
         env = {**os.environ, "CARGO_TARGET_DIR": str(WORK / "build")}
         sh(["cargo", "build", "-q", "-p", "strata-cli"], cwd=wt, env=env)
         binary = str(WORK / "build/debug/strata")
+        root, corpus_sha, corpus_subject, ra_env = prepare_corpus(corpus, spec, wt, corpus_rev)
 
-        symbols = strata_json(binary, wt, "symbols", "", "--json")
-        edges = collect_edges(binary, wt, symbols)
+        symbols = strata_json(binary, root, "symbols", "", "--json")
+        edges = collect_edges(binary, root, symbols)
         states = {}
         for e in edges:
             states[e["state"]] = states.get(e["state"], 0) + 1
         unindexed = {
             ln.split()[1]
-            for ln in sh([binary, "files", "--unindexed"], cwd=wt).splitlines()
+            for ln in sh([binary, "files", "--unindexed"], cwd=root).splitlines()
             if ln.strip()
         }
         tracked = [
-            p
-            for p in sh(["git", "ls-files", "*.rs", "*.py"], cwd=wt).split()
-            if "/fixtures/" not in p
+            str(p.relative_to(root))
+            for ext in ("*.rs", "*.py")
+            for p in root.rglob(ext)
+            if "/fixtures/" not in str(p) and "/target/" not in str(p)
         ]
 
-        scip = WORK / f"{sha}.scip"
-        sh(["rust-analyzer", "scip", ".", "--output", str(scip)], cwd=wt, check=False)
+        scip = WORK / f"{corpus}-{sha}.scip"
+        sh(["rust-analyzer", "scip", ".", "--output", str(scip)], cwd=root, env=ra_env, check=False)
         defs, refs = read_scip(scip)
-        result = recall(wt, symbols, edges, defs, refs)
+        result = recall(root, symbols, edges, defs, refs)
     finally:
         sh(["git", "worktree", "remove", "--force", str(wt)], cwd=ROOT, check=False)
 
@@ -306,21 +337,33 @@ def measure(rev, label, verbose):
         "counts": result["counts"],
         "review": None,
     }
+    if corpus_sha:
+        record.update(corpus_rev=corpus_sha, corpus_subject=corpus_subject)
     return record
 
 
 # ---------------------------------------------------------------- history, chart, README
 
 
-def load():
-    if not HIST.exists():
+def hist_path(corpus):
+    return METRICS / ("history.jsonl" if corpus == "self" else f"history-{corpus}.jsonl")
+
+
+def chart_path(corpus):
+    return METRICS / ("chart.svg" if corpus == "self" else f"chart-{corpus}.svg")
+
+
+def load(corpus):
+    p = hist_path(corpus)
+    if not p.exists():
         return []
-    return [json.loads(ln) for ln in HIST.read_text().splitlines() if ln.strip()]
+    return [json.loads(ln) for ln in p.read_text().splitlines() if ln.strip()]
 
 
-def save(runs):
-    HIST.parent.mkdir(parents=True, exist_ok=True)
-    HIST.write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in runs))
+def save(corpus, runs):
+    p = hist_path(corpus)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in runs))
 
 
 def review_total(r):
@@ -332,12 +375,12 @@ def fmt(v, pct=False):
     return "–" if v is None else (f"{v:.1f}%" if pct else str(v))
 
 
-def table(runs):
-    head = (
-        "| Run | Rev | What changed | Symbol recall | Call-site recall | Target recall "
-        "| False external | Unresolved | Review findings (std / spec / correctness) |\n"
-        "| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |\n"
-    )
+def table(runs, external=False):
+    cols = "| Run | strata | " + ("corpus | " if external else "") + "What changed | Symbol recall "
+    cols += "| Call-site recall | Target recall | False external | Unresolved "
+    cols += "| Calls scored |\n" if external else "| Review findings (std / spec / correctness) |\n"
+    head = cols + "| ---: | --- |" + (" --- |" if external else "") + " --- | ---: | ---: | ---: | ---: | ---: |"
+    head += (" ---: |\n" if external else " --- |\n")
     rows = []
     for i, r in enumerate(runs, 1):
         rv = r.get("review")
@@ -348,19 +391,24 @@ def table(runs):
             else "–"
         )
         rc = r["recall"]
-        rows.append(
-            f"| {i} | `{r['rev']}` | {r['label']} | {fmt(rc['symbols'], True)} "
-            f"| {fmt(rc['call_site'], True)} | {fmt(rc['target'], True)} "
-            f"| {r['counts']['false_external']} | {r['edges'].get('unresolved', 0)} | {review} |"
+        row = f"| {i} | `{r['rev']}` | "
+        if external:
+            row += f"`{r.get('corpus_rev', '')}` | "
+        row += (
+            f"{r['label']} | {fmt(rc['symbols'], True)} | {fmt(rc['call_site'], True)} "
+            f"| {fmt(rc['target'], True)} | {r['counts']['false_external']} "
+            f"| {r['edges'].get('unresolved', 0)} | "
         )
+        row += f"{r['counts']['scip_calls']} |" if external else f"{review} |"
+        rows.append(row)
     return head + "\n".join(rows) + "\n"
 
 
 SERIES = [("symbols", "Symbols", "s1"), ("call_site", "Call sites", "s2"), ("target", "Targets", "s3")]
 
 
-def chart(runs):
-    W, H = 760, 500
+def chart(runs, title, review_panel=True):
+    W, H = 760, 500 if review_panel else 290
     x0, x1 = 64, W - 120
     n = len(runs)
     xs = [(x0 + x1) / 2] if n == 1 else [x0 + (x1 - x0) * i / (n - 1) for i in range(n)]
@@ -371,7 +419,7 @@ def chart(runs):
     out = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}" '
         'role="img" aria-labelledby="t d">',
-        "<title id=\"t\">strata self-analysis: recall and review findings per run</title>",
+        "<title id=\"t\">{title}: recall per run</title>",
         f'<desc id="d">{n} runs. Recall of symbols, call sites and call targets against '
         "rust-analyzer, and code-review finding counts. Values are in the table below the chart.</desc>",
         "<style>",
@@ -419,46 +467,67 @@ def chart(runs):
         labels[j][0] = max(labels[j][0], labels[j - 1][0] + 14)
     for y, text in labels:
         out.append(f'<text x="{x1 + 12}" y="{y + 4:.1f}">{text}</text>')
-    # review findings panel
-    top2, bot2 = 300, 430
-    out.append(f'<text class="h" x="{x0}" y="{top2 - 26}">Code-review findings per run (lower is better)</text>')
-    mx = max([review_total(r) or 0 for r in runs] + [1])
-    out.append(f'<line class="grid" x1="{x0}" x2="{x1}" y1="{bot2}" y2="{bot2}"/>')
-    for i, r in enumerate(runs):
-        tot = review_total(r)
-        if tot is None:
-            out.append(f'<text x="{xs[i]:.1f}" y="{bot2 - 6}" text-anchor="middle">n/a</text>')
-        else:
-            h = max(2, tot / mx * (bot2 - top2 - 18))
-            rv = r["review"]
-            out.append(
-                f'<rect class="bar" x="{xs[i] - 16:.1f}" y="{bot2 - h:.1f}" width="32" height="{h:.1f}" rx="4">'
-                f'<title>run {i + 1} ({r["rev"]}): {tot} findings — standards {rv.get("standards", 0)}, '
-                f'spec {rv.get("spec", 0)}, correctness {rv.get("correctness", 0)}</title></rect>'
-            )
-            out.append(f'<text class="v" x="{xs[i]:.1f}" y="{bot2 - h - 5:.1f}" text-anchor="middle">{tot}</text>')
-    for i, r in enumerate(runs):
-        out.append(f'<text x="{xs[i]:.1f}" y="{bot2 + 20}" text-anchor="middle">run {i + 1}</text>')
-        out.append(f'<text x="{xs[i]:.1f}" y="{bot2 + 36}" text-anchor="middle">{r["rev"]}</text>')
+    if not review_panel:
+        for i, r in enumerate(runs):
+            out.append(f'<text x="{xs[i]:.1f}" y="{bot1 + 20}" text-anchor="middle">run {i + 1}</text>')
+            out.append(f'<text x="{xs[i]:.1f}" y="{bot1 + 36}" text-anchor="middle">{r["rev"]}</text>')
+    else:
+        top2, bot2 = 300, 430
+        out.append(f'<text class="h" x="{x0}" y="{top2 - 26}">Code-review findings per run (lower is better)</text>')
+        mx = max([review_total(r) or 0 for r in runs] + [1])
+        out.append(f'<line class="grid" x1="{x0}" x2="{x1}" y1="{bot2}" y2="{bot2}"/>')
+        for i, r in enumerate(runs):
+            tot = review_total(r)
+            if tot is None:
+                out.append(f'<text x="{xs[i]:.1f}" y="{bot2 - 6}" text-anchor="middle">n/a</text>')
+            else:
+                h = max(2, tot / mx * (bot2 - top2 - 18))
+                rv = r["review"]
+                out.append(
+                    f'<rect class="bar" x="{xs[i] - 16:.1f}" y="{bot2 - h:.1f}" width="32" height="{h:.1f}" rx="4">'
+                    f'<title>run {i + 1} ({r["rev"]}): {tot} findings — standards {rv.get("standards", 0)}, '
+                    f'spec {rv.get("spec", 0)}, correctness {rv.get("correctness", 0)}</title></rect>'
+                )
+                out.append(f'<text class="v" x="{xs[i]:.1f}" y="{bot2 - h - 5:.1f}" text-anchor="middle">{tot}</text>')
+        for i, r in enumerate(runs):
+            out.append(f'<text x="{xs[i]:.1f}" y="{bot2 + 20}" text-anchor="middle">run {i + 1}</text>')
+            out.append(f'<text x="{xs[i]:.1f}" y="{bot2 + 36}" text-anchor="middle">{r["rev"]}</text>')
     out.append("</svg>")
     return "\n".join(out) + "\n"
 
 
-def render(runs):
-    CHART.parent.mkdir(parents=True, exist_ok=True)
-    CHART.write_text(chart(runs))
+def render_corpus(corpus, runs):
+    spec = CORPORA[corpus]
+    external = spec["path"] is not None
+    chart_path(corpus).parent.mkdir(parents=True, exist_ok=True)
+    chart_path(corpus).write_text(chart(runs, spec["title"], review_panel=not external))
+    start, end = f"<!-- metrics-{corpus}:start -->", f"<!-- metrics-{corpus}:end -->"
+    if corpus == "self":  # the original markers
+        start, end = "<!-- metrics:start -->", "<!-- metrics:end -->"
+    intro = ""
+    if external:
+        intro = (
+            f"### {spec['title']}\n\nThe same scoring on a repository strata was never tuned "
+            "against. `strata` is the commit under test, `corpus` the commit of the repo it "
+            "indexed.\n\n"
+        )
     block = (
-        f"{MARK_START}\n\n![strata self-analysis chart](docs/metrics/chart.svg)\n\n"
-        f"{table(runs)}\n{MARK_END}"
+        f"{start}\n\n{intro}![{spec['title']} chart](docs/metrics/{chart_path(corpus).name})\n\n"
+        f"{table(runs, external)}\n{end}"
     )
     text = README.read_text()
-    if MARK_START in text:
-        text = re.sub(
-            re.escape(MARK_START) + ".*?" + re.escape(MARK_END), lambda _: block, text, flags=re.S
-        )
+    if start in text:
+        text = re.sub(re.escape(start) + ".*?" + re.escape(end), lambda _: block, text, flags=re.S)
     else:
         text = text.rstrip() + "\n\n" + block + "\n"
     README.write_text(text)
+
+
+def render_all():
+    for corpus in CORPORA:
+        runs = load(corpus)
+        if runs:
+            render_corpus(corpus, runs)
 
 
 def parse_review(s):
@@ -473,27 +542,30 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="measure a revision and update history, chart and README")
-    r.add_argument("--rev", default="HEAD")
+    r.add_argument("--rev", default="HEAD", help="strata commit to build and test (default HEAD)")
+    r.add_argument("--corpus", default="self", choices=sorted(CORPORA), help="what to index")
+    r.add_argument("--corpus-rev", default="HEAD", help="commit of an external corpus (default HEAD)")
     r.add_argument("--label", help="short note on what changed (default: commit subject)")
     r.add_argument("--review", type=parse_review, help="findings from a code review, e.g. standards=11,spec=11,correctness=9")
     r.add_argument("-v", "--verbose", action="store_true", help="list missed calls and definitions")
-    sub.add_parser("render", help="redraw chart and README from history only")
+    sub.add_parser("render", help="redraw charts and README from history only")
     args = ap.parse_args()
 
-    runs = load()
     if args.cmd == "run":
-        rec = measure(args.rev, args.label, args.verbose)
+        runs = load(args.corpus)
+        rec = measure(args.rev, args.corpus, args.corpus_rev, args.label, args.verbose)
         rec["review"] = args.review
+        key = lambda x: (x["rev"], x.get("corpus_rev"), x["label"])
         for i, old in enumerate(runs):
-            if (old["rev"], old["label"]) == (rec["rev"], rec["label"]):
+            if key(old) == key(rec):
                 rec["review"] = rec["review"] or old.get("review")
                 runs[i] = rec
                 break
         else:
             runs.append(rec)
-        save(runs)
+        save(args.corpus, runs)
         print(json.dumps(rec, indent=2))
-    render(runs)
+    render_all()
 
 
 if __name__ == "__main__":
