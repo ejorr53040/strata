@@ -190,3 +190,45 @@ fn functions_generated_by_ioctl_macros_are_defined() {
         vec!["resolved shapes.use_ioctl -> shapes.tun_none shapes/src/lib.rs:74"]
     );
 }
+
+// Depth round 1: type references.
+
+fn refs(sym: &str) -> Vec<String> {
+    run(&["refs", sym])
+}
+
+#[test]
+fn type_references_are_edges_with_their_enclosing_item_as_the_source() {
+    assert_eq!(
+        refs("shapes.Circle"),
+        vec![
+            "resolved[type] app.main.main -> shapes.Circle app/src/main.rs:5",
+            "resolved[type] app.main.shadow -> shapes.Circle app/src/main.rs:14",
+            "resolved[type] shapes.Circle -> shapes.Circle shapes/src/lib.rs:18",
+            "resolved[type] shapes.Circle.new -> shapes.Circle shapes/src/lib.rs:19",
+            "resolved[type] shapes.Circle.new -> shapes.Circle shapes/src/lib.rs:20",
+            "resolved[type] shapes.Circle -> shapes.Circle shapes/src/lib.rs:27",
+            "resolved[type] shapes.Circle.area -> shapes.Circle shapes/src/lib.rs:29",
+            "resolved[type] shapes.Circle -> shapes.Circle shapes/src/lib.rs:33",
+            "resolved[type] shapes.Circle -> shapes.Circle shapes/src/lib.rs:52",
+            "resolved[type] shapes.util.make -> shapes.Circle shapes/src/util.rs:7",
+            "resolved[type] shapes.util.make -> shapes.Circle shapes/src/util.rs:8",
+        ]
+    );
+}
+
+#[test]
+fn generic_parameters_are_not_type_references_but_their_bounds_are() {
+    let lines = refs("shapes.Shape");
+    assert!(
+        lines.contains(
+            &"resolved[type] shapes.ident -> shapes.Shape shapes/src/lib.rs:77".to_string()
+        ),
+        "{lines:#?}"
+    );
+    let all = run(&["call", "edges", "{}"]).join("\n");
+    assert!(
+        !all.contains(r#""callee":"T""#),
+        "generic param T leaked as a type reference"
+    );
+}

@@ -2,7 +2,8 @@
 //! module `crates/x-y/src/a/b.rs` is `x_y.a.b`, `impl T { fn m }` defines `T.m`, and a path
 //! `crate::a::f` becomes `x_y.a.f`.
 
-use super::{Call, Def, DefKind, FileFacts, Import, Language};
+use super::{Call, Def, DefKind, FileFacts, Import, Language, Ref};
+use crate::graph::EdgeKind;
 use std::collections::HashSet;
 use tree_sitter::{Node, Parser};
 
@@ -90,6 +91,8 @@ enum Scope {
     Mod,
     Type,
     Func,
+    /// Struct, enum, type alias: owns members but no methods.
+    Item,
 }
 
 struct State<'a> {
@@ -102,6 +105,8 @@ struct State<'a> {
     scope: Vec<(String, Scope)>,
     /// Names bound by `let`, parameters and patterns, per enclosing function.
     locals: Vec<HashSet<String>>,
+    /// Generic parameter names in scope (`T` in `fn f<T>`): never references to an item.
+    generics: Vec<HashSet<String>>,
     /// `mod x;` declared in this file: `use x::f` means `use self::x::f`.
     declared_mods: HashSet<String>,
     facts: &'a mut FileFacts,
@@ -157,6 +162,7 @@ fn parse_into(
         row_off,
         scope,
         locals: outer_locals.to_vec(),
+        generics: Vec::new(),
         declared_mods: HashSet::new(),
         facts,
         impls,
@@ -187,34 +193,150 @@ impl State<'_> {
     fn walk(&mut self, node: Node) {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            match child.kind() {
-                "function_item" | "function_signature_item" => self.function(child),
-                "struct_item" => self.type_def(child, DefKind::Struct),
-                "enum_item" => self.type_def(child, DefKind::Enum),
-                "trait_item" => {
-                    self.type_def(child, DefKind::Trait);
-                    self.enter_body(child, Scope::Type);
+            self.visit(child);
+        }
+    }
+
+    fn visit(&mut self, child: Node) {
+        match child.kind() {
+            "function_item" | "function_signature_item" => self.function(child),
+            "struct_item" => self.item(child, DefKind::Struct, Scope::Item),
+            "enum_item" => self.item(child, DefKind::Enum, Scope::Item),
+            "trait_item" => self.item(child, DefKind::Trait, Scope::Type),
+            "type_item" => self.item(child, DefKind::TypeAlias, Scope::Item),
+            "impl_item" => self.impl_block(child),
+            "mod_item" => self.module_item(child),
+            "use_declaration" => {
+                if let Some(arg) = child.child_by_field_name("argument") {
+                    self.use_tree(arg, Vec::new());
                 }
-                "impl_item" => self.impl_block(child),
-                "mod_item" => self.module_item(child),
-                "use_declaration" => {
-                    if let Some(arg) = child.child_by_field_name("argument") {
-                        self.use_tree(arg, Vec::new());
-                    }
+            }
+            "call_expression" => {
+                self.call(child);
+                self.call_rest(child);
+            }
+            "macro_invocation" => {
+                if !self.define_macro_fn(child) {
+                    self.macro_call(child);
                 }
-                "call_expression" => {
-                    self.call(child);
-                    self.walk(child);
+            }
+            "type_identifier" => self.type_ref(child),
+            "scoped_type_identifier" => self.scoped_ref(child, EdgeKind::Type, true),
+            "scoped_identifier" => self.scoped_ref(child, EdgeKind::Value, false),
+            _ => self.walk(child),
+        }
+    }
+
+    /// Visit a call's children except its callee, whose own references `call` recorded.
+    fn call_rest(&mut self, node: Node) {
+        let callee = node.child_by_field_name("function").map(|f| f.id());
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if Some(child.id()) != callee {
+                self.visit(child);
+                continue;
+            }
+            // The receiver of `a.b.m()` is an expression that may hold references of its own.
+            if child.kind() == "field_expression" {
+                if let Some(recv) = child.child_by_field_name("value") {
+                    self.visit(recv);
                 }
-                "type_item" => self.type_def(child, DefKind::TypeAlias),
-                "macro_invocation" => {
-                    if !self.define_macro_fn(child) {
-                        self.macro_call(child);
-                    }
-                }
-                _ => self.walk(child),
             }
         }
+    }
+
+    fn push_ref(&mut self, expr: String, line: usize, kind: EdgeKind) {
+        let enclosing = self.scope.last().map(|s| s.0.clone());
+        self.facts.refs.push(Ref {
+            enclosing,
+            expr,
+            line,
+            kind,
+        });
+    }
+
+    fn is_generic(&self, name: &str) -> bool {
+        self.generics.iter().any(|g| g.contains(name))
+    }
+
+    /// A bare type name in a type position. Definition names and generic parameters are not
+    /// references.
+    fn type_ref(&mut self, node: Node) {
+        let is_def_name = node.parent().is_some_and(|p| {
+            matches!(
+                p.kind(),
+                "struct_item"
+                    | "enum_item"
+                    | "trait_item"
+                    | "type_item"
+                    | "union_item"
+                    | "type_parameter"
+                    | "associated_type"
+            ) && p
+                .child_by_field_name("name")
+                .is_some_and(|n| n.id() == node.id())
+        });
+        let name = self.text(node);
+        if is_def_name || self.is_generic(&name) {
+            return;
+        }
+        self.push_ref(name, self.line(node), EdgeKind::Type);
+    }
+
+    /// `a::b::C`: one `Path` reference per prefix (`a`, `a::b`) and, when `with_last`, the
+    /// whole path as `kind`.
+    fn scoped_ref(&mut self, node: Node, kind: EdgeKind, with_last: bool) {
+        let raw = strip_generics(&self.text(node));
+        let segs: Vec<&str> = raw.split("::").collect();
+        if segs.len() == 1 || segs[0].is_empty() {
+            return;
+        }
+        let first_generic = self.is_generic(segs[0]);
+        for i in 0..segs.len() - 1 {
+            if i == 0 && first_generic {
+                continue;
+            }
+            let prefix = segs[..=i].join("::");
+            self.push_ref(self.path(&prefix), self.line(node), EdgeKind::Path);
+        }
+        if with_last && !first_generic {
+            self.push_ref(
+                self.path(&raw),
+                node.end_position().row + 1 + self.row_off,
+                kind,
+            );
+        }
+    }
+
+    fn collect_generics(&self, node: Node) -> HashSet<String> {
+        let mut out = HashSet::new();
+        if let Some(tp) = node.child_by_field_name("type_parameters") {
+            let mut c = tp.walk();
+            for p in tp.named_children(&mut c) {
+                let name = p
+                    .child_by_field_name("name")
+                    .or_else(|| p.named_child(0).filter(|n| n.kind() == "type_identifier"));
+                if let Some(n) = name {
+                    out.insert(self.text(n));
+                }
+            }
+        }
+        out
+    }
+
+    /// Define a struct/enum/trait/alias, then visit everything in it with it as the scope.
+    fn item(&mut self, node: Node, kind: DefKind, scope: Scope) {
+        self.type_def(node, kind);
+        let q = self.qualify(&self.name_of(node));
+        self.enter_item(node, q, scope);
+    }
+
+    fn enter_item(&mut self, node: Node, qualname: String, scope: Scope) {
+        self.scope.push((qualname, scope));
+        self.generics.push(self.collect_generics(node));
+        self.walk(node);
+        self.generics.pop();
+        self.scope.pop();
     }
 
     fn qualify(&self, name: &str) -> String {
@@ -240,16 +362,6 @@ impl State<'_> {
         });
     }
 
-    /// Walk a node's `body` with `scope` pushed; the scope name is the node's own item name.
-    fn enter_body(&mut self, node: Node, scope: Scope) {
-        let q = self.qualify(&self.name_of(node));
-        self.scope.push((q, scope));
-        if let Some(body) = node.child_by_field_name("body") {
-            self.walk(body);
-        }
-        self.scope.pop();
-    }
-
     fn function(&mut self, node: Node) {
         let qualname = self.qualify(&self.name_of(node));
         let kind = match self.scope.last() {
@@ -264,9 +376,9 @@ impl State<'_> {
         });
         self.scope.push((qualname, Scope::Func));
         self.locals.push(self.collect_locals(node));
-        if let Some(body) = node.child_by_field_name("body") {
-            self.walk(body);
-        }
+        self.generics.push(self.collect_generics(node));
+        self.walk(node);
+        self.generics.pop();
         self.locals.pop();
         self.scope.pop();
     }
@@ -319,11 +431,7 @@ impl State<'_> {
             let tr = self.type_name(tr);
             self.impls.push((qual.clone(), tr));
         }
-        self.scope.push((qual, Scope::Type));
-        if let Some(body) = node.child_by_field_name("body") {
-            self.walk(body);
-        }
-        self.scope.pop();
+        self.enter_item(node, qual, Scope::Type);
     }
 
     /// `Foo<T>` -> `Foo`, `a::b::Foo` -> `a.b.Foo`.
@@ -478,6 +586,9 @@ impl State<'_> {
         let callee = self.callee(f);
         if callee != "__strata_macro" {
             self.push_call(callee, self.line(node));
+        }
+        if f.kind() == "scoped_identifier" {
+            self.scoped_ref(f, EdgeKind::Value, false);
         }
     }
 

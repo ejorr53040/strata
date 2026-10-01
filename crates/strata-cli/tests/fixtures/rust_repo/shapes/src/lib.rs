@@ -73,3 +73,7 @@ nix::ioctl_none!(tun_none, 0x54, 1);
 pub fn use_ioctl() {
     tun_none();
 }
+
+pub fn ident<T: Shape>(x: T) -> T {
+    x
+}

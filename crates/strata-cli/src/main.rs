@@ -29,6 +29,12 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Every connection (call, type use, ...) whose targets include a symbol
+    Refs {
+        symbol: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Call sites inside a symbol, with each edge's state
     Callees {
         symbol: String,
@@ -144,6 +150,11 @@ fn walk_options(
     ))
 }
 
+fn graph_of(root: &std::path::Path, set: &[String]) -> Result<strata_core::graph::Graph, String> {
+    let sources = strata_core::graph::load_with(root, &walk_options(root, set)?);
+    Ok(strata_core::graph::build(&sources, &[]))
+}
+
 fn print_edges(edges: Vec<&strata_core::graph::Edge>, json: bool) {
     if json {
         println!("{}", serde_json::to_string(&edges).unwrap());
@@ -181,17 +192,15 @@ fn run() -> Result<(), String> {
             }
         }
         Cmd::Callers { symbol, json } => {
-            let graph = strata_core::graph::build(
-                &strata_core::graph::load_with(&root, &walk_options(&root, &cli.set)?),
-                &[],
-            );
+            let graph = graph_of(&root, &cli.set)?;
             print_edges(graph.callers(&symbol), json);
         }
+        Cmd::Refs { symbol, json } => {
+            let graph = graph_of(&root, &cli.set)?;
+            print_edges(graph.references(&symbol), json);
+        }
         Cmd::Callees { symbol, json } => {
-            let graph = strata_core::graph::build(
-                &strata_core::graph::load_with(&root, &walk_options(&root, &cli.set)?),
-                &[],
-            );
+            let graph = graph_of(&root, &cli.set)?;
             print_edges(graph.callees(&symbol), json);
         }
         Cmd::Smoke { prompt, model } => smoke(&root, &cli.set, &prompt, model)?,

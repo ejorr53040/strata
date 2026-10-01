@@ -1,6 +1,8 @@
 //! Language plugins: each language turns source text into language-neutral [`FileFacts`];
 //! the resolver in [`crate::graph`] works only on those facts.
 
+use crate::graph::EdgeKind;
+
 pub mod python;
 pub mod rust;
 
@@ -12,6 +14,10 @@ pub enum DefKind {
     Enum,
     Trait,
     TypeAlias,
+    Field,
+    Variant,
+    Const,
+    Static,
     Method,
 }
 
@@ -24,6 +30,10 @@ impl DefKind {
             DefKind::Enum => "enum",
             DefKind::Trait => "trait",
             DefKind::TypeAlias => "type",
+            DefKind::Field => "field",
+            DefKind::Variant => "variant",
+            DefKind::Const => "const",
+            DefKind::Static => "static",
             DefKind::Method => "method",
         }
     }
@@ -69,8 +79,22 @@ pub struct Call {
     pub local: bool,
 }
 
+/// A non-call use of a name: a type in a signature, a field access, a path segment...
+/// `expr` is spelled like a callee (`a.b.C`, `self.field`); the resolver decides what it names.
+#[derive(Debug, Clone)]
+pub struct Ref {
+    /// Qualname of the innermost enclosing item (fn, impl type, struct...), if any.
+    pub enclosing: Option<String>,
+    pub expr: String,
+    pub line: usize,
+    /// What the plugin knows: `Type`, `Path` (a prefix of a longer path), `Value`, `Field`.
+    /// The resolver refines it from what the name turns out to be.
+    pub kind: EdgeKind,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct FileFacts {
+    pub refs: Vec<Ref>,
     pub defs: Vec<Def>,
     pub imports: Vec<Import>,
     pub calls: Vec<Call>,

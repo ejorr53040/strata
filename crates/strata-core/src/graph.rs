@@ -51,6 +51,8 @@ pub enum EdgeKind {
     Impl,
     /// A `use` declaration binding a name.
     Import,
+    /// A module (or crate) named as a prefix of a longer path.
+    Path,
 }
 
 impl EdgeKind {
@@ -63,6 +65,7 @@ impl EdgeKind {
             EdgeKind::Variant => "variant",
             EdgeKind::Impl => "impl",
             EdgeKind::Import => "import",
+            EdgeKind::Path => "path",
         }
     }
 }
@@ -181,6 +184,9 @@ pub fn build(sources: &[Source], unindexed_modules: &[String]) -> Graph {
                 continue; // a closure or fn-pointer call: no function of that name is in scope
             }
             edges.push(index.edge(module, path, call));
+        }
+        for r in &facts.refs {
+            edges.extend(index.ref_edge(module, path, r));
         }
     }
     edges.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
@@ -339,18 +345,37 @@ impl Index<'_> {
     }
 
     fn find_method_in(&self, class: &str, name: &str, seen: &mut Vec<String>) -> Option<String> {
+        self.find_in(class, name, seen, true)
+    }
+
+    /// A field, variant, constant or method of `class` (or its bases) by name.
+    fn find_member(&self, class: &str, name: &str) -> Option<String> {
+        self.find_in(class, name, &mut Vec::new(), false)
+    }
+
+    fn find_in(
+        &self,
+        class: &str,
+        name: &str,
+        seen: &mut Vec<String>,
+        callable: bool,
+    ) -> Option<String> {
         if seen.iter().any(|s| s == class) {
             return None;
         }
         seen.push(class.to_string());
         let id = format!("{class}.{name}");
-        if self.symbols.contains_key(&id) {
+        let ok = self
+            .symbols
+            .get(&id)
+            .is_some_and(|s| !callable || matches!(s.kind, DefKind::Method | DefKind::Function));
+        if ok {
             return Some(id);
         }
         let bases = self.bases.get(class)?;
         bases
             .iter()
-            .find_map(|b| self.find_method_in(b, name, seen))
+            .find_map(|b| self.find_in(b, name, seen, callable))
     }
 
     /// Every subclass of `class`, transitively.
@@ -373,7 +398,11 @@ impl Index<'_> {
         let mut targets: Vec<String> = self.find_method(class, name).into_iter().collect();
         for d in self.descendants(class) {
             let id = format!("{d}.{name}");
-            if self.symbols.contains_key(&id) {
+            if self
+                .symbols
+                .get(&id)
+                .is_some_and(|s| matches!(s.kind, DefKind::Method | DefKind::Function))
+            {
                 targets.push(id);
             }
         }
@@ -421,7 +450,7 @@ impl Index<'_> {
         for k in (1..=segs.len()).rev() {
             let l = self.lookup(module, &segs[..k].join("."));
             if !matches!(l, Lookup::Missing) {
-                return self.resolve_from(lang, l, &segs[k..]);
+                return self.resolve_from(lang, l, &segs[k..], false);
             }
         }
         if segs.len() == 1 {
@@ -433,7 +462,7 @@ impl Index<'_> {
         for k in (1..segs.len()).rev() {
             let m = segs[..k].join(".");
             if self.modules.contains_key(&m) {
-                return self.resolve_in_module(&m, &segs[k..]);
+                return self.resolve_in_module(&m, &segs[k..], false);
             }
         }
         // Receiver type is unknown: every indexed method with that name is a possible target.
@@ -456,12 +485,127 @@ impl Index<'_> {
         }
     }
 
-    fn resolve_from(&self, lang: &dyn Language, l: Lookup, rest: &[&str]) -> Outcome {
+    /// The type an item's qualname sits in or is: `Circle.new` and `Circle` both give `Circle`.
+    fn class_of(&self, module: &str, enclosing: &str) -> Option<String> {
+        let own = qualify(module, enclosing);
+        if self.is_class(&own) {
+            return Some(own);
+        }
+        self.enclosing_class(module, enclosing)
+    }
+
+    /// Turn a non-call reference into an edge, or drop it: only connections that resolve,
+    /// plus unresolved type/field uses (which flag gaps), are worth recording.
+    fn ref_edge(&self, module: &str, path: &str, r: &lang::Ref) -> Option<Edge> {
+        let caller = qualify(module, r.enclosing.as_deref().unwrap_or("<module>"));
+        let outcome = self.resolve_ref(module, r.enclosing.as_deref(), &r.expr)?;
+        let (state, targets, reason) = match outcome {
+            Outcome::Resolved(t) => (EdgeState::Resolved, t, None),
+            Outcome::Candidate(t) => (EdgeState::Candidate, t, None),
+            Outcome::Unresolved(why) if matches!(r.kind, EdgeKind::Type | EdgeKind::Field) => {
+                (EdgeState::Unresolved, Vec::new(), Some(why))
+            }
+            _ => return None,
+        };
+        let kind = targets.first().map_or(r.kind, |t| self.refine(r.kind, t));
+        Some(Edge {
+            kind,
+            caller,
+            callee: r.expr.clone(),
+            state,
+            targets,
+            evidence: None,
+            reason,
+            path: path.to_string(),
+            line: r.line,
+        })
+    }
+
+    /// What a reference really is, from what it points at.
+    fn refine(&self, initial: EdgeKind, target: &str) -> EdgeKind {
+        match self.symbols.get(target).map(|s| s.kind) {
+            Some(k) if k.is_type() || k == DefKind::TypeAlias => EdgeKind::Type,
+            Some(DefKind::Variant) => EdgeKind::Variant,
+            Some(DefKind::Field) => EdgeKind::Field,
+            Some(_) => EdgeKind::Value,
+            None if self.modules.contains_key(target) => EdgeKind::Path,
+            None => initial,
+        }
+    }
+
+    fn resolve_ref(&self, module: &str, enclosing: Option<&str>, expr: &str) -> Option<Outcome> {
+        let lang = self.modules[module].0;
+        let segs: Vec<&str> = expr.split('.').collect();
+        if matches!(segs[0], "self" | "Self") {
+            let class = enclosing.and_then(|e| self.class_of(module, e))?;
+            return Some(match segs.as_slice() {
+                [_] => Outcome::Resolved(vec![class]),
+                [_, name] => match self.find_member(&class, name) {
+                    Some(m) => Outcome::Resolved(vec![m]),
+                    None => self.unknown_member(lang, &class, name),
+                },
+                [.., name] => self.by_member_name(lang, name),
+                [] => return None,
+            });
+        }
+        for k in (1..=segs.len()).rev() {
+            match self.lookup(module, &segs[..k].join(".")) {
+                Lookup::Missing => {}
+                Lookup::Module(m) if k == segs.len() => return Some(Outcome::Resolved(vec![m])),
+                l => return Some(self.resolve_from(lang, l, &segs[k..], true)),
+            }
+        }
+        for k in (1..segs.len()).rev() {
+            let m = segs[..k].join(".");
+            if self.modules.contains_key(&m) {
+                return Some(self.resolve_in_module(&m, &segs[k..], true));
+            }
+        }
+        if segs.len() > 1 {
+            // `recv.field` with a receiver whose type we do not know.
+            return Some(self.by_member_name(lang, segs[segs.len() - 1]));
+        }
+        Some(Outcome::Unresolved(format!(
+            "`{expr}` is not defined in module scope or imports"
+        )))
+    }
+
+    /// `Type.name` where `Type` is indexed but has no member `name`.
+    fn unknown_member(&self, lang: &dyn Language, class: &str, name: &str) -> Outcome {
+        if lang.unindexed_members_are_external() {
+            Outcome::External(format!(
+                "no indexed member `{name}` on `{class}`; derived or trait item"
+            ))
+        } else {
+            Outcome::Unresolved(format!("no indexed member `{name}` on `{class}`"))
+        }
+    }
+
+    /// A member access on a receiver of unknown type: every indexed field or variant so named.
+    fn by_member_name(&self, lang: &dyn Language, name: &str) -> Outcome {
+        let suffix = format!(".{name}");
+        let targets: Vec<String> = self
+            .symbols
+            .iter()
+            .filter(|(id, s)| s.kind == DefKind::Field && id.ends_with(&suffix))
+            .map(|(id, _)| id.clone())
+            .collect();
+        if !targets.is_empty() {
+            Outcome::Candidate(targets)
+        } else if lang.unindexed_members_are_external() {
+            Outcome::External(format!("no indexed field `{name}`; receiver type unknown"))
+        } else {
+            Outcome::Unresolved(format!("no indexed field `{name}`"))
+        }
+    }
+
+    fn resolve_from(&self, lang: &dyn Language, l: Lookup, rest: &[&str], any: bool) -> Outcome {
         match l {
             Lookup::Def(id) if rest.is_empty() => Outcome::Resolved(vec![id]),
             Lookup::Def(id) => {
                 // `Class.method(...)` names its target statically, so inheritance applies but overrides don't.
                 let found = match rest {
+                    [name] if self.is_class(&id) && any => self.find_member(&id, name),
                     [name] if self.is_class(&id) => self.find_method(&id, name),
                     _ => None,
                 };
@@ -480,7 +624,7 @@ impl Index<'_> {
                     )),
                 }
             }
-            Lookup::Module(m) => self.resolve_in_module(&m, rest),
+            Lookup::Module(m) => self.resolve_in_module(&m, rest, any),
             Lookup::External(ev) => Outcome::External(ev),
             Lookup::Unindexed(ev) => Outcome::Unindexed(ev),
             Lookup::NotInModule(m, n) => {
@@ -490,7 +634,7 @@ impl Index<'_> {
         }
     }
 
-    fn resolve_in_module(&self, module: &str, rest: &[&str]) -> Outcome {
+    fn resolve_in_module(&self, module: &str, rest: &[&str], any: bool) -> Outcome {
         if rest.is_empty() {
             return Outcome::Unresolved(format!("module `{module}` is not callable"));
         }
@@ -501,11 +645,11 @@ impl Index<'_> {
         let ty = qualify(module, rest[0]);
         if rest.len() > 1 && self.is_class(&ty) {
             // `module::Type::member`: the member lookup rules apply, derives included.
-            return self.resolve_from(self.modules[module].0, Lookup::Def(ty), &rest[1..]);
+            return self.resolve_from(self.modules[module].0, Lookup::Def(ty), &rest[1..], any);
         }
         let sub = qualify(module, rest[0]);
         if rest.len() > 1 && self.modules.contains_key(&sub) {
-            return self.resolve_in_module(&sub, &rest[1..]);
+            return self.resolve_in_module(&sub, &rest[1..], any);
         }
         Outcome::Unresolved(format!(
             "`{}` is not defined in module `{module}`",
