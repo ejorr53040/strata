@@ -39,3 +39,20 @@ fn closure_in_macro() {
 fn qualified() {
     shapes::Config::default();
 }
+
+mod helper;
+
+fn uses_helper() {
+    helper::go();
+}
+
+fn guard(o: Option<i32>) -> bool {
+    match o {
+        Some(x) if helper_fn(x) => true,
+        _ => false,
+    }
+}
+
+fn helper_fn(_x: i32) -> bool {
+    true
+}

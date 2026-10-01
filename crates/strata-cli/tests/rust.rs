@@ -110,3 +110,22 @@ fn dogfooding_gaps_multiline_receivers_derives_reexports_and_macro_closures() {
         vec!["candidate shapes.Circle.thrice -> shapes.Circle.area,shapes.Shape.area shapes/src/lib.rs:54"]
     );
 }
+
+#[test]
+fn dogfood_round_two_crate_root_mods_and_match_guards() {
+    // `mod helper;` in main.rs is a sibling file src/helper.rs, not src/main/helper.rs.
+    assert_eq!(
+        run(&["callees", "app.main.uses_helper"]),
+        vec!["resolved app.main.uses_helper -> app.helper.go app/src/main.rs:46"]
+    );
+    // Same for an integration-test crate root with a shared `tests/common/mod.rs`.
+    assert_eq!(
+        run(&["callees", "app.tests.it.it"]),
+        vec!["resolved app.tests.it.it -> app.tests.common.setup app/tests/it.rs:4"]
+    );
+    // A call inside a match guard is a call, not a pattern binding.
+    assert_eq!(
+        run(&["callees", "app.main.guard"]),
+        vec!["resolved app.main.guard -> app.main.helper_fn app/src/main.rs:51"]
+    );
+}

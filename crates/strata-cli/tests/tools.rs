@@ -64,7 +64,7 @@ fn call_rejects_unknown_tools_and_missing_arguments() {
 #[test]
 fn overview_summarises_symbols_and_edge_states() {
     let v = json(&strata(&["call", "overview", "{}"]));
-    assert_eq!(v["files"]["indexed"], 3);
+    assert_eq!(v["files"]["indexed"], 6);
     assert_eq!(v["symbols"]["struct"], 2);
     assert_eq!(v["symbols"]["trait"], 1);
     assert!(v["edges"]["resolved"].as_u64().unwrap() >= 4);

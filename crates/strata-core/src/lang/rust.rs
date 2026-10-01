@@ -48,7 +48,19 @@ impl Language for Rust {
         let module = self.module_name(rel_path);
         let mut facts = FileFacts::default();
         let mut impls = Vec::new();
-        parse_into(src, &module, Vec::new(), 0, &[], &mut facts, &mut impls);
+        let children = child_base(rel_path, &module);
+        parse_into(
+            src,
+            Names {
+                module: &module,
+                children: &children,
+            },
+            Vec::new(),
+            0,
+            &[],
+            &mut facts,
+            &mut impls,
+        );
         qualify_nested_calls(&mut facts, &module);
         for (ty, tr) in impls {
             if let Some(d) = facts.defs.iter_mut().find(|d| d.qualname == ty) {
@@ -83,6 +95,8 @@ enum Scope {
 struct State<'a> {
     src: &'a [u8],
     module: &'a str,
+    /// Base module for `mod x;` declarations (see [`child_base`]).
+    children: &'a str,
     krate: &'a str,
     row_off: usize,
     scope: Vec<(String, Scope)>,
@@ -94,9 +108,32 @@ struct State<'a> {
     impls: &'a mut Vec<(String, String)>,
 }
 
+/// Module that owns the files named by `mod x;` in this file. A crate root other than
+/// `lib.rs` (`main.rs`, `tests/foo.rs`, ...) is named after its file, but its children sit
+/// beside it, not under it.
+fn child_base(rel_path: &str, module: &str) -> String {
+    let comps: Vec<&str> = rel_path.split('/').collect();
+    let file = comps.last().copied().unwrap_or_default();
+    let direct_target =
+        comps.len() >= 2 && matches!(comps[comps.len() - 2], "tests" | "benches" | "examples");
+    let src_main = file == "main.rs" && comps.len() >= 2 && comps[comps.len() - 2] == "src";
+    if src_main || direct_target {
+        module.rsplit_once('.').map_or(module, |p| p.0).to_string()
+    } else {
+        module.to_string()
+    }
+}
+
+/// The module a file defines and the module its `mod x;` declarations hang off.
+#[derive(Clone, Copy)]
+struct Names<'a> {
+    module: &'a str,
+    children: &'a str,
+}
+
 fn parse_into(
     src: &str,
-    module: &str,
+    names: Names,
     scope: Vec<(String, Scope)>,
     row_off: usize,
     outer_locals: &[HashSet<String>],
@@ -110,10 +147,12 @@ fn parse_into(
     let Some(tree) = parser.parse(src, None) else {
         return;
     };
+    let Names { module, children } = names;
     let krate = module.split('.').next().unwrap_or(module);
     let mut st = State {
         src: src.as_bytes(),
         module,
+        children,
         krate,
         row_off,
         scope,
@@ -232,9 +271,13 @@ impl State<'_> {
             if n.kind() == "identifier" {
                 out.insert(n.utf8_text(src).unwrap_or_default().to_string());
             }
+            // `Some(x) if guard(x)`: the guard is an expression, not a binding.
+            let guard = n.child_by_field_name("condition").map(|g| g.id());
             let mut c = n.walk();
             for ch in n.children(&mut c) {
-                idents(ch, src, out);
+                if Some(ch.id()) != guard {
+                    idents(ch, src, out);
+                }
             }
         }
         fn go(n: Node, src: &[u8], out: &mut HashSet<String>) {
@@ -301,7 +344,7 @@ impl State<'_> {
             // `mod x;` binds `x` to the file `x.rs` / `x/mod.rs` next to this one.
             None => self.facts.imports.push(Import {
                 local: name.clone(),
-                module: format!("{}.{name}", self.module),
+                module: format!("{}.{name}", self.children),
                 name: None,
             }),
         }
@@ -474,7 +517,10 @@ impl State<'_> {
         let locals = self.locals.clone();
         parse_into(
             &snippet,
-            self.module,
+            Names {
+                module: self.module,
+                children: self.children,
+            },
             scope,
             row,
             &locals,
