@@ -41,6 +41,57 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Send one message to the model provider and stream the reply (checks key + connectivity)
+    Smoke {
+        #[arg(default_value = "Say hello in five words.")]
+        prompt: String,
+        /// Model to use (default: effective `agent.model`)
+        #[arg(long)]
+        model: Option<String>,
+    },
+}
+
+fn smoke(
+    root: &std::path::Path,
+    set: &[String],
+    prompt: &str,
+    model: Option<String>,
+) -> Result<(), String> {
+    use std::io::Write;
+    use strata_agent::{Anthropic, Message, Provider, Request, StreamEvent};
+
+    let key = strata_agent::resolve_api_key(&config_home(), std::env::vars())?;
+    let model = match model {
+        Some(m) => m,
+        None => effective_config(root, set)?["agent.model"].value.clone(),
+    };
+    let base = std::env::var("STRATA_ANTHROPIC_BASE_URL")
+        .unwrap_or_else(|_| "https://api.anthropic.com".to_string());
+    let req = Request {
+        model: model.clone(),
+        max_tokens: 256,
+        system: None,
+        tools: vec![],
+        messages: vec![Message::user_text(prompt)],
+    };
+    let done = Anthropic::new(&key, &base)
+        .stream(&req, &mut |e| {
+            if let StreamEvent::Text(t) = e {
+                print!("{t}");
+                let _ = std::io::stdout().flush();
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    println!();
+    let u = done.usage;
+    let cost = u
+        .cost_usd(&model)
+        .map_or("unknown".to_string(), |c| format!("${c:.4}"));
+    eprintln!(
+        "usage: in={} out={} cache_write={} cache_read={} cost={cost}",
+        u.input_tokens, u.output_tokens, u.cache_creation_input_tokens, u.cache_read_input_tokens
+    );
+    Ok(())
 }
 
 #[derive(Subcommand)]
@@ -126,6 +177,7 @@ fn run() -> Result<(), String> {
             let graph = strata_core::graph::build(&strata_core::graph::load(&root), &[]);
             print_edges(graph.callees(&symbol), json);
         }
+        Cmd::Smoke { prompt, model } => smoke(&root, &cli.set, &prompt, model)?,
         Cmd::Symbols { query, json } => {
             let opts = walk_options(&root, &cli.set)?;
             let syms = strata_core::index::symbols_with(&root, &query, &opts);

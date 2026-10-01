@@ -169,6 +169,19 @@ fn read_opt(path: &std::path::Path) -> Result<Option<String>, String> {
     }
 }
 
+/// Read `<config_home>/strata/credentials.toml` (empty if absent), refusing it unless mode 0600.
+pub fn read_credentials(config_home: &std::path::Path) -> Result<toml::Table, String> {
+    let path = config_home.join("strata/credentials.toml");
+    check_credentials(&path)?;
+    match read_opt(&path)? {
+        // Never echo file contents: a parse error from `toml` can quote the offending line.
+        Some(text) => text
+            .parse()
+            .map_err(|_| format!("{}: not valid TOML", path.display())),
+        None => Ok(toml::Table::new()),
+    }
+}
+
 /// credentials.toml must be readable by the owner only.
 fn check_credentials(path: &std::path::Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
