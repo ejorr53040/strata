@@ -47,5 +47,13 @@ afterthought:**
    A miss that is the scorer's fault gets fixed in `metrics.py` and noted in the commit.
 4. Report each run's deltas (recall, false external, unresolved, review findings) to the user.
 
+A second series scores strata on an external repo (cirrocumulus, `~/cs/cirrocumulus`; override
+with `CIRRO_PATH`): `python3 scripts/metrics.py run --corpus cirrocumulus --label "..."`
+(history `docs/metrics/history-cirrocumulus.jsonl`, chart `chart-cirrocumulus.svg`). Run it
+whenever the self series is run, and whenever cirrocumulus gains commits worth re-scoring. It
+exports the corpus with `git archive` and never runs rust-analyzer inside that repo (its
+`build.rs` nests a cargo build into its own `target/`). New misses there are strata bugs: add a
+fixture case to `crates/strata-cli/tests/fixtures/rust_repo`, see it fail, then fix.
+
 The numbers are Rust-only; `scripts/` and test fixtures are in `.strataignore` so they do not
 distort the self-index. The runs table is a series: do not delete rows or rewrite old ones.

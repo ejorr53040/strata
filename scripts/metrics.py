@@ -507,9 +507,10 @@ def render_corpus(corpus, runs):
     intro = ""
     if external:
         intro = (
-            f"### {spec['title']}\n\nThe same scoring on a repository strata was never tuned "
-            "against. `strata` is the commit under test, `corpus` the commit of the repo it "
-            "indexed.\n\n"
+            f"### {spec['title']}\n\nThe same scoring on a repository outside strata. Run 1 is "
+            "strata's first look at it, before any cirrocumulus-specific fix; later runs include "
+            "fixes for the gaps run 1 exposed, so read them as tuned, not blind. `strata` is the "
+            "commit under test, `corpus` the commit of the repo it indexed.\n\n"
         )
     block = (
         f"{start}\n\n{intro}![{spec['title']} chart](docs/metrics/{chart_path(corpus).name})\n\n"

@@ -44,7 +44,7 @@ number and the chart below; see [Metrics](CLAUDE.md#metrics) for when to run it.
 
 ### cirrocumulus (external corpus)
 
-The same scoring on a repository strata was never tuned against. `strata` is the commit under test, `corpus` the commit of the repo it indexed.
+The same scoring on a repository outside strata. Run 1 is strata's first look at it, before any cirrocumulus-specific fix; later runs include fixes for the gaps run 1 exposed, so read them as tuned, not blind. `strata` is the commit under test, `corpus` the commit of the repo it indexed.
 
 ![cirrocumulus (external corpus) chart](docs/metrics/chart-cirrocumulus.svg)
 
