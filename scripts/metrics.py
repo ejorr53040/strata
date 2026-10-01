@@ -306,12 +306,13 @@ def measure(rev, corpus, corpus_rev, label, verbose):
             for ln in sh([binary, "files", "--unindexed"], cwd=root).splitlines()
             if ln.strip()
         }
-        tracked = [
+        rels = [
             str(p.relative_to(root))
             for ext in ("*.rs", "*.py")
             for p in root.rglob(ext)
-            if "/fixtures/" not in str(p) and "/target/" not in str(p)
         ]
+        # Judge by the path inside the corpus: the scratch checkout itself lives under target/.
+        tracked = [p for p in rels if "/fixtures/" not in p and not p.startswith("target/")]
 
         scip = WORK / f"{corpus}-{sha}.scip"
         sh(["rust-analyzer", "scip", ".", "--output", str(scip)], cwd=root, env=ra_env, check=False)
