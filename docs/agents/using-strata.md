@@ -1,6 +1,6 @@
 # Using strata to analyze code
 
-strata is a compiler-backed code index (Python and Rust today). Use it instead of grepping
+strata is a compiler-backed code index (Python, Rust and JavaScript, plus HTML/CSS). Use it instead of grepping
 when you need to know what defines, calls or depends on something. Run it from the repo
 root; every tool returns JSON.
 
@@ -44,7 +44,22 @@ strata guide                          # print this document
 unknown type (`x.run()`) list every indexed method named `run`. Standard-library methods
 (`vec.push()`) show up as `unresolved`; that is expected, not a bug.
 
+## HTML and CSS
+
+Markup has its own index: `matched_elements` (what a selector hits), `matching_rules` (the
+cascade for one element, given as `path:line` of its start tag) and `unused_selectors`. A
+page's rules are the stylesheets it links (relative, root or Jinja `url_for(.., filename=..)`
+hrefs) and its `<style>` blocks, in document order; a page that names none gets every
+stylesheet. State rules (`:hover`, `:checked`) and pseudo-elements are listed but never win a
+property. Elements built by JavaScript are not in the index, so `unused_selectors` can list
+selectors that script-built DOM uses.
+
 ## Limits
+
+- JavaScript: classic `<script>` files (no `import`/`export`) share one global scope, so a
+  bare call finds a function in any of them (several definitions read `candidate`). Method
+  calls on values of unknown type are `unresolved`; chains rooted in a browser global
+  (`document.querySelector(..).remove()`) are `external`.
 
 - Rust macros are re-parsed as argument lists, so calls inside `format!(..)` are found but
   macro-generated items are not. `use a::*` imports are not followed.

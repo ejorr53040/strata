@@ -14,9 +14,7 @@ impl Language for Javascript {
 
     /// `web/util.js` → `web.util`; `web/index.js` is the directory's module, like `__init__.py`.
     fn module_name(&self, rel_path: &str) -> String {
-        let stem = rel_path
-            .rsplit_once('.')
-            .map_or(rel_path, |(s, _)| s);
+        let stem = rel_path.rsplit_once('.').map_or(rel_path, |(s, _)| s);
         let stem = stem.strip_suffix("/index").unwrap_or(stem);
         let stem = if stem == "index" { "" } else { stem };
         stem.replace('/', ".")
@@ -293,9 +291,7 @@ impl State<'_> {
         let mut bases = Vec::new();
         if kind == DefKind::Class {
             let mut c = node.walk();
-            let heritage = node
-                .children(&mut c)
-                .find(|n| n.kind() == "class_heritage");
+            let heritage = node.children(&mut c).find(|n| n.kind() == "class_heritage");
             if let Some(base) = heritage.and_then(|h| h.named_child(0)) {
                 bases.push(self.text(base));
             }

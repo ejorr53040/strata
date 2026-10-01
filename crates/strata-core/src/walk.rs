@@ -92,7 +92,9 @@ pub fn walk(root: &Path, opts: &WalkOptions) -> Walk {
     let mut out = Walk::default();
     for rel in all {
         let ext = rel.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let supported = crate::lang::for_path(&rel.to_string_lossy()).is_some();
+        let rel_str = rel.to_string_lossy();
+        let supported =
+            crate::lang::for_path(&rel_str).is_some() || crate::markup::is_markup(&rel_str);
         if !supported && !UNSUPPORTED_SOURCE.contains(&ext) {
             continue;
         }

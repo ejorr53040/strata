@@ -29,7 +29,10 @@ fn symbols_lists_js_functions_classes_methods_and_arrow_consts() {
         "method Counter.bump web/util.js:10",
         "function double web/util.js:15",
     ] {
-        assert!(lines.contains(&want.to_string()), "missing {want}: {lines:#?}");
+        assert!(
+            lines.contains(&want.to_string()),
+            "missing {want}: {lines:#?}"
+        );
     }
 }
 

@@ -54,6 +54,29 @@ pub fn catalog() -> Vec<Value> {
             },
         }),
         json!({
+            "name": "matched_elements",
+            "description": "HTML elements a CSS selector (or comma-separated list) can apply to, by path and line of the start tag. State pseudo-classes (:hover) are assumed to match; template syntax in class/id ({{ }}, {% %}) is skipped.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"selector": {"type": "string", "description": "A CSS selector, e.g. `#main > .card`"}},
+                "required": ["selector"]
+            },
+        }),
+        json!({
+            "name": "matching_rules",
+            "description": "CSS rules that can apply to the HTML element(s) whose start tag is at `path:line`, from lowest to highest precedence (specificity, then source order across the page's linked and inline stylesheets), and for each property the rule that wins (!important first; state rules like :hover and pseudo-elements are listed but never win).",
+            "input_schema": {
+                "type": "object",
+                "properties": {"element": {"type": "string", "description": "`path:line` of the element's start tag, e.g. `templates/index.html:12`"}},
+                "required": ["element"]
+            },
+        }),
+        json!({
+            "name": "unused_selectors",
+            "description": "CSS selectors that match no element on any indexed HTML page that loads their stylesheet (a stylesheet no page links is unused throughout). Elements built by JavaScript are not seen, so check before deleting.",
+            "input_schema": none,
+        }),
+        json!({
             "name": "references",
             "description": "Every connection of any kind (call, and as depth grows: type use, value use, field, variant, impl, import) whose targets include the symbol.",
             "input_schema": sym("Fully qualified id or a unique dotted suffix"),
@@ -100,6 +123,22 @@ pub fn call(root: &Path, opts: &WalkOptions, name: &str, args: &Value) -> Result
                 root, opts, level, budget
             ))))
         }
+        "matched_elements" => {
+            let m = crate::markup::build(&graph::load_with(root, opts));
+            Ok(json!(m.matched_elements(str_arg("selector")?)))
+        }
+        "matching_rules" => {
+            let element = str_arg("element")?;
+            let (path, line) = element
+                .rsplit_once(':')
+                .and_then(|(p, l)| Some((p, l.parse::<usize>().ok()?)))
+                .ok_or_else(|| format!("`element` must be `path:line`, got `{element}`"))?;
+            let m = crate::markup::build(&graph::load_with(root, opts));
+            Ok(json!(m.matching_rules(path, line)))
+        }
+        "unused_selectors" => Ok(json!(
+            crate::markup::build(&graph::load_with(root, opts)).unused_selectors()
+        )),
         "references" => {
             let g = graph::build(&graph::load_with(root, opts), &[]);
             Ok(json!(g.references(str_arg("symbol")?)))

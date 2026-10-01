@@ -3,5 +3,6 @@ pub mod graph;
 pub mod index;
 pub mod lang;
 pub mod map;
+pub mod markup;
 pub mod tools;
 pub mod walk;
