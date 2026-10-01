@@ -15,3 +15,14 @@ Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 ### Domain docs
 
 Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+## Analyzing code in this repo
+
+strata indexes its own Rust source. For "who calls X", "what breaks if I change Y", or
+"where is Z defined", use the CLI instead of grepping: build with `cargo build`, then run
+`./target/debug/strata call overview '{}'` and follow `docs/agents/using-strata.md`
+(`strata guide` prints the same text). The tool catalog lives in
+`crates/strata-core/src/tools.rs`; add a tool there and it is available to the CLI, and
+later to MCP and `strata ask`. If strata's answer looks wrong, that is a bug in strata:
+write a failing fixture test under `crates/strata-cli/tests/` first.
+

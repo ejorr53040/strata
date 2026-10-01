@@ -219,7 +219,7 @@ impl Index<'_> {
                     } else if self.modules.contains_key(&full) {
                         Lookup::Module(full)
                     } else if self.modules.contains_key(&imp.module) {
-                        Lookup::NotInModule(imp.module.clone(), n.clone())
+                        self.follow_reexport(&imp.module, n, 0)
                     } else if self.is_unindexed(&imp.module) {
                         Lookup::Unindexed(format!("from {} import {n}", imp.module))
                     } else {
@@ -238,6 +238,20 @@ impl Index<'_> {
             return Lookup::External("builtin".into());
         }
         Lookup::Missing
+    }
+
+    /// `from m import n` where `m` itself imports `n` (`pub use`, `__init__` re-exports).
+    fn follow_reexport(&self, module: &str, name: &str, depth: usize) -> Lookup {
+        let not_found = || Lookup::NotInModule(module.to_string(), name.to_string());
+        if depth > 8 {
+            return not_found();
+        }
+        match self.lookup(module, name) {
+            Lookup::Missing => not_found(),
+            // Importing from a module that imports from itself must not loop.
+            Lookup::NotInModule(..) => not_found(),
+            other => other,
+        }
     }
 
     /// Resolve each class's base expressions in its module's scope, then invert to subclasses.
@@ -340,6 +354,7 @@ impl Index<'_> {
     }
 
     fn resolve(&self, module: &str, enclosing: Option<&str>, callee: &str) -> Outcome {
+        let lang = self.modules[module].0;
         if !callee
             .chars()
             .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
@@ -355,7 +370,7 @@ impl Index<'_> {
         for k in (1..=segs.len()).rev() {
             let l = self.lookup(module, &segs[..k].join("."));
             if !matches!(l, Lookup::Missing) {
-                return self.resolve_from(l, &segs[k..]);
+                return self.resolve_from(lang, l, &segs[k..]);
             }
         }
         if segs.len() == 1 {
@@ -379,7 +394,9 @@ impl Index<'_> {
             .filter(|(id, s)| s.kind == DefKind::Method && id.ends_with(&suffix))
             .map(|(id, _)| id.clone())
             .collect();
-        if targets.is_empty() {
+        if targets.is_empty() && lang.unindexed_members_are_external() {
+            Outcome::External(format!("no indexed method `{name}`; receiver type unknown"))
+        } else if targets.is_empty() {
             Outcome::Unresolved(format!(
                 "receiver of `{callee}` has unknown type and no indexed method is named `{name}`"
             ))
@@ -388,7 +405,7 @@ impl Index<'_> {
         }
     }
 
-    fn resolve_from(&self, l: Lookup, rest: &[&str]) -> Outcome {
+    fn resolve_from(&self, lang: &dyn Language, l: Lookup, rest: &[&str]) -> Outcome {
         match l {
             Lookup::Def(id) if rest.is_empty() => Outcome::Resolved(vec![id]),
             Lookup::Def(id) => {
@@ -399,6 +416,12 @@ impl Index<'_> {
                 };
                 match found {
                     Some(m) => Outcome::Resolved(vec![m]),
+                    None if lang.unindexed_members_are_external() && self.is_class(&id) => {
+                        Outcome::External(format!(
+                            "`{id}` has no indexed member `{}`; derived or trait method",
+                            rest.join(".")
+                        ))
+                    }
                     None => Outcome::Unresolved(format!(
                         "`{}` has no indexed member `{}`",
                         id,
@@ -423,6 +446,11 @@ impl Index<'_> {
         let full = qualify(module, &rest.join("."));
         if self.symbols.contains_key(&full) {
             return Outcome::Resolved(vec![full]);
+        }
+        let ty = qualify(module, rest[0]);
+        if rest.len() > 1 && self.is_class(&ty) {
+            // `module::Type::member`: the member lookup rules apply, derives included.
+            return self.resolve_from(self.modules[module].0, Lookup::Def(ty), &rest[1..]);
         }
         let sub = qualify(module, rest[0]);
         if rest.len() > 1 && self.modules.contains_key(&sub) {

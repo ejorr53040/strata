@@ -49,6 +49,7 @@ impl Language for Rust {
         let mut facts = FileFacts::default();
         let mut impls = Vec::new();
         parse_into(src, &module, Vec::new(), 0, &[], &mut facts, &mut impls);
+        qualify_nested_calls(&mut facts, &module);
         for (ty, tr) in impls {
             if let Some(d) = facts.defs.iter_mut().find(|d| d.qualname == ty) {
                 d.bases.push(tr);
@@ -59,6 +60,10 @@ impl Language for Rust {
 
     fn is_builtin(&self, name: &str) -> bool {
         BUILTINS.contains(&name)
+    }
+
+    fn unindexed_members_are_external(&self) -> bool {
+        true
     }
 }
 
@@ -83,6 +88,8 @@ struct State<'a> {
     scope: Vec<(String, Scope)>,
     /// Names bound by `let`, parameters and patterns, per enclosing function.
     locals: Vec<HashSet<String>>,
+    /// `mod x;` declared in this file: `use x::f` means `use self::x::f`.
+    declared_mods: HashSet<String>,
     facts: &'a mut FileFacts,
     impls: &'a mut Vec<(String, String)>,
 }
@@ -111,10 +118,21 @@ fn parse_into(
         row_off,
         scope,
         locals: outer_locals.to_vec(),
+        declared_mods: HashSet::new(),
         facts,
         impls,
     };
+    st.declared_mods = declared_mods(tree.root_node(), src.as_bytes());
     st.walk(tree.root_node());
+}
+
+fn declared_mods(root: Node, src: &[u8]) -> HashSet<String> {
+    let mut c = root.walk();
+    root.children(&mut c)
+        .filter(|n| n.kind() == "mod_item" && n.child_by_field_name("body").is_none())
+        .filter_map(|n| n.child_by_field_name("name")?.utf8_text(src).ok())
+        .map(str::to_string)
+        .collect()
 }
 
 impl State<'_> {
@@ -236,8 +254,10 @@ impl State<'_> {
         out
     }
 
+    /// Closures capture enclosing locals, and macro bodies are re-parsed inside a synthetic
+    /// fn, so look through every enclosing function's bindings.
     fn is_local(&self, name: &str) -> bool {
-        self.locals.last().is_some_and(|l| l.contains(name))
+        self.locals.iter().any(|l| l.contains(name))
     }
 
     fn impl_block(&mut self, node: Node) {
@@ -351,6 +371,13 @@ impl State<'_> {
     /// Bind `a::b::c` (optionally aliased): the last segment is the imported name.
     fn bind(&mut self, full: &str, alias: Option<String>) {
         let full = full.strip_suffix("::self").unwrap_or(full);
+        let first = full.split("::").next().unwrap_or(full);
+        let full = if self.declared_mods.contains(first) {
+            format!("self::{full}")
+        } else {
+            full.to_string()
+        };
+        let full = full.as_str();
         let dotted = self.path(full);
         match dotted.rsplit_once('.') {
             Some((module, name)) if !full.ends_with("::self") => {
@@ -384,7 +411,7 @@ impl State<'_> {
             return;
         };
         let callee = self.callee(f);
-        if callee == "__strata_macro" {
+        if callee == "__strata_macro" || self.is_constructor_or_closure(&callee) {
             return;
         }
         let enclosing = self.enclosing_fn();
@@ -393,6 +420,14 @@ impl State<'_> {
             callee,
             line: self.line(node),
         });
+    }
+
+    /// `Enum::Variant(..)` and `Wrapper(..)` build values, and `f(..)` on a local binding
+    /// calls a closure or fn pointer; neither is a call edge we can resolve.
+    fn is_constructor_or_closure(&self, callee: &str) -> bool {
+        let last = callee.rsplit('.').next().unwrap_or(callee);
+        last.starts_with(|c: char| c.is_uppercase())
+            || (!callee.contains('.') && self.is_local(callee))
     }
 
     fn callee(&self, f: Node) -> String {
@@ -411,7 +446,8 @@ impl State<'_> {
                 let recv = f.child_by_field_name("value");
                 match recv {
                     Some(r) if simple_receiver(r) && !self.is_local(&root_ident(self, r)) => {
-                        format!("{}.{name}", self.text(r))
+                        let recv: String = self.text(r).split_whitespace().collect();
+                        format!("{recv}.{name}")
                     }
                     // Unknown receiver expression: leave only the method name to match on.
                     _ => format!("_.{name}"),
@@ -477,5 +513,28 @@ fn root_ident(st: &State, n: Node) -> String {
             .map(|v| root_ident(st, v))
             .unwrap_or_default(),
         _ => st.text(n),
+    }
+}
+
+/// A bare `inner()` inside `outer` names the nested fn `outer.inner`; spell it out as an
+/// absolute path so the resolver can find it.
+fn qualify_nested_calls(facts: &mut FileFacts, module: &str) {
+    let defs: HashSet<&str> = facts.defs.iter().map(|d| d.qualname.as_str()).collect();
+    for call in &mut facts.calls {
+        let (Some(enc), false) = (&call.enclosing, call.callee.contains('.')) else {
+            continue;
+        };
+        let mut scope = enc.as_str();
+        loop {
+            let cand = format!("{scope}.{}", call.callee);
+            if defs.contains(cand.as_str()) {
+                call.callee = format!("{module}.{cand}");
+                break;
+            }
+            match scope.rsplit_once('.') {
+                Some((parent, _)) => scope = parent,
+                None => break,
+            }
+        }
     }
 }

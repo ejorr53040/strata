@@ -78,6 +78,13 @@ pub trait Language: Sync {
     fn extract(&self, rel_path: &str, src: &str) -> FileFacts;
     /// Names that are always in scope without an import.
     fn is_builtin(&self, name: &str) -> bool;
+    /// A member that no indexed definition has (a method on a receiver of unknown type, or
+    /// `Type::name` where `Type` has no such member) cannot reach indexed code when the
+    /// language is statically typed: it is std, a dependency, or derived, so `external`.
+    /// Dynamic languages keep it `unresolved` (the member may live in code we cannot see).
+    fn unindexed_members_are_external(&self) -> bool {
+        false
+    }
 }
 
 static PYTHON: python::Python = python::Python;

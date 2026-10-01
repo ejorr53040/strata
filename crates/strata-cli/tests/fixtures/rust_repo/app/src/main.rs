@@ -14,3 +14,28 @@ fn shadow() {
     let util = Circle::new(1.0);
     util.area();
 }
+
+fn ext() {
+    let mut v = Vec::new();
+    let _o = Some(1);
+    v.push(1);
+    fn inner() {}
+    inner();
+    let f = || 1;
+    f();
+}
+
+use shapes::make;
+
+fn reexport() {
+    make();
+}
+
+fn closure_in_macro() {
+    let show = |x: i32| x;
+    println!("{}", show(1));
+}
+
+fn qualified() {
+    shapes::Config::default();
+}

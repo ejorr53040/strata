@@ -35,6 +35,17 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Print the agent tool catalog (JSON: name, description, input_schema)
+    Tools,
+    /// Run one agent tool: `strata call callees '{"symbol":"graph.build"}'`
+    Call {
+        tool: String,
+        /// JSON object of arguments (default `{}`)
+        #[arg(default_value = "{}")]
+        args: String,
+    },
+    /// Print how agents should use strata
+    Guide,
     /// Find symbols by name substring
     Symbols {
         query: String,
@@ -184,6 +195,18 @@ fn run() -> Result<(), String> {
             print_edges(graph.callees(&symbol), json);
         }
         Cmd::Smoke { prompt, model } => smoke(&root, &cli.set, &prompt, model)?,
+        Cmd::Tools => println!(
+            "{}",
+            serde_json::to_string_pretty(&strata_core::tools::catalog()).unwrap()
+        ),
+        Cmd::Guide => print!("{}", include_str!("../../../docs/agents/using-strata.md")),
+        Cmd::Call { tool, args } => {
+            let args: serde_json::Value =
+                serde_json::from_str(&args).map_err(|e| format!("arguments are not JSON: {e}"))?;
+            let opts = walk_options(&root, &cli.set)?;
+            let out = strata_core::tools::call(&root, &opts, &tool, &args)?;
+            println!("{}", serde_json::to_string(&out).unwrap());
+        }
         Cmd::Symbols { query, json } => {
             let opts = walk_options(&root, &cli.set)?;
             let syms = strata_core::index::symbols_with(&root, &query, &opts);

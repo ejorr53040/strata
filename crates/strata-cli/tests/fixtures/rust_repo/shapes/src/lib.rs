@@ -29,3 +29,30 @@ impl Shape for Circle {
         util::square(self.r) + Self::unit()
     }
 }
+
+impl Circle {
+    fn twice(&self) -> f64 {
+        self
+            .area()
+            * 2.0
+    }
+}
+
+#[derive(Default)]
+pub struct Config {
+    n: u32,
+}
+
+pub fn config() -> Config {
+    Config::default()
+}
+
+pub use util::make;
+
+impl Circle {
+    fn thrice(&self) -> f64 {
+        self
+            .inner
+            .area()
+    }
+}
