@@ -295,6 +295,116 @@ def impl_truth(root, rels):
     return out
 
 
+def parse_map(text):
+    """Read a `strata map` back into items: (path, kind, name, line, indent, calls, callers)."""
+    items, path, cur = [], None, None
+    for raw in text.splitlines()[1:]:
+        if raw.startswith("== "):
+            path = raw.split(" ")[2]
+            cur = None
+            continue
+        st = raw.lstrip()
+        indent = (len(raw) - len(st)) // 2
+        m = re.match(r"(fn|struct|enum|trait|type|field|variant|const|static|module) (\S+) :(\d+)", st)
+        if m:
+            cur = {"path": path, "kind": m[1], "name": m[2], "line": int(m[3]), "indent": indent,
+                   "calls": set(), "callers": set()}
+            items.append(cur)
+        elif cur and (st.startswith("> ") or st.startswith("< ")):
+            names = {n.split("|")[0] if False else n for n in re.sub(r" … \+\d+$", "", st[2:]).split(", ")}
+            cur["calls" if st[0] == ">" else "callers"] |= names
+    return items
+
+
+def f1(truth, got):
+    if not truth and not got:
+        return 1.0
+    hit = len(truth & got)
+    p, r = hit / len(got) if got else 0.0, hit / len(truth) if truth else 0.0
+    return 2 * p * r / (p + r) if p + r else 0.0
+
+
+def qa_scores(map_text, defs, refs, root, n=40):
+    """Answer questions from the map text alone and score them against rust-analyzer.
+
+    where: is each sampled definition in the map at its path:line, under its own name?
+    fields: do a struct's field items match the fields rust-analyzer lists for it?
+    callers: does a function's `<` list equal the functions that call it (per rust-analyzer)?
+    """
+    items = parse_map(map_text)
+    by_pos = {(i["path"], i["line"]): i for i in items if i["kind"] != "field"}
+    fn_defs = {}
+    for sym, locs in defs.items():
+        if category(sym) == "fn":
+            for p, ln in locs:
+                if p.endswith(".rs"):
+                    fn_defs.setdefault(p, []).append((ln, sym))
+    for v in fn_defs.values():
+        v.sort()
+    pick = lambda xs: xs[:: max(1, len(xs) // n)][:n]
+
+    # where
+    where = []
+    for sym in pick(sorted(s for s in defs if category(s) in ("fn", "type"))):
+        for p, ln in defs[sym][:1]:
+            it = by_pos.get((p, ln))
+            where.append(1.0 if it and it["name"].split(".")[-1] == last_name(descriptors(sym)) else 0.0)
+
+    # fields
+    fields_by_type = {}
+    for sym, locs in defs.items():
+        d = descriptors(sym)
+        if category(sym) == "field" and d.count("#") == 1:
+            fields_by_type.setdefault(d.rsplit("#", 1)[0], set()).add(last_name(d))
+    fq = []
+    for tdesc in pick(sorted(fields_by_type)):
+        tname = last_name(tdesc)
+        got = set()
+        for k, it in enumerate(items):
+            if it["kind"] in ("struct", "enum") and it["name"].split(".")[-1] == tname:
+                for ch in items[k + 1:]:
+                    if ch["indent"] <= it["indent"]:
+                        break
+                    if ch["kind"] == "field" and ch["indent"] == it["indent"] + 1:
+                        got.add(ch["name"].split(".")[-1])
+                break
+        fq.append(f1(fields_by_type[tdesc], got))
+
+    # callers
+    callers = {}
+    src = {}
+    for rel, line1, endcol, sym in refs:
+        if category(sym) != "fn" or rel not in fn_defs and not rel.endswith(".rs"):
+            continue
+        if rel not in src:
+            try:
+                lines = (root / rel).read_text(errors="replace").splitlines()
+            except OSError:
+                continue
+            src[rel] = (lines, use_lines(lines))
+        lines, in_use = src[rel]
+        if line1 in in_use or line1 > len(lines):
+            continue
+        if not re.match(r"\s*(::<.*?>)?\s*\(", lines[line1 - 1][endcol:]):
+            continue
+        encl = [ln for ln, _ in fn_defs.get(rel, []) if ln <= line1]
+        if not encl:
+            continue
+        it = by_pos.get((rel, encl[-1]))
+        if it:
+            callers.setdefault(sym, set()).add(it["name"])
+    cq = []
+    for sym in pick(sorted(callers)):
+        for p, ln in defs.get(sym, [])[:1]:
+            it = by_pos.get((p, ln))
+            if it:
+                cq.append(f1(callers[sym], it["callers"]))
+
+    avg = lambda xs: round(100 * sum(xs) / len(xs), 1) if xs else None
+    return {"where": avg(where), "fields": avg(fq), "callers": avg(cq),
+            "n": {"where": len(where), "fields": len(fq), "callers": len(cq)}}
+
+
 def depth_scores(root, symbols, edges, defs, refs):
     """Score every kind of connection against SCIP. -> dict for history, plus misses."""
     have = {(s["path"], s["line"]) for s in symbols}
@@ -600,6 +710,17 @@ def measure(rev, corpus, corpus_rev, label, verbose):
         defs, refs = read_scip(scip)
         result = recall(root, symbols, edges, defs, refs)
         depth = depth_scores(root, symbols, edges, defs, refs)
+        by_level, texts = {}, {}
+        for lvl in range(4):
+            out = sh([binary, "map", "--level", str(lvl)], cwd=root)
+            texts[lvl] = out
+            m = re.search(r"~([\d,]+) tokens", out.splitlines()[0])
+            by_level[lvl] = int(m[1].replace(",", "")) if m else None
+        src_chars = sum(
+            len((root / p).read_text(errors="replace")) for p in rels if p.endswith(".rs")
+            and "/fixtures/" not in p and not p.startswith("target/")
+        )
+        qa = qa_scores(texts[2], defs, refs, root)
     finally:
         sh(["git", "worktree", "remove", "--force", str(wt)], cwd=ROOT, check=False)
 
@@ -628,6 +749,12 @@ def measure(rev, corpus, corpus_rev, label, verbose):
         "recall": result["recall"],
         "counts": result["counts"],
         "depth": {k: v for k, v in depth.items() if not k.startswith("_")},
+        "map": {
+            "tokens": by_level[2],
+            "by_level": by_level,
+            "source_tokens": round(src_chars / 3.5),
+            "qa": qa,
+        },
         "review": None,
     }
     if corpus_sha:
@@ -696,11 +823,18 @@ def table(runs, external=False):
     return head + "\n".join(rows) + "\n"
 
 
+def qa_cell(mp):
+    qa = (mp or {}).get("qa")
+    if not qa:
+        return "–"
+    return " / ".join("–" if qa[k] is None else f"{qa[k]:.0f}%" for k in ("where", "fields", "callers"))
+
+
 def table_external(runs):
     head = (
         "| Run | strata | corpus | What changed | Definitions | References seen | References right "
-        "| References exact | False external | Unresolved | Map tokens |\n"
-        "| ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n"
+        "| References exact | False external | Unresolved | Map tokens (source) | Map QA where / fields / callers |\n"
+        "| ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n"
     )
     rows = []
     for i, r in enumerate(runs, 1):
@@ -711,7 +845,8 @@ def table_external(runs):
             f"| {fmt(sm.get('defs'), True)} | {fmt(sm.get('refs_seen'), True)} "
             f"| {fmt(sm.get('refs_right'), True)} | {fmt(sm.get('refs_exact'), True)} "
             f"| {r['counts']['false_external']} | {r['edges'].get('unresolved', 0)} "
-            f"| {'–' if not mp else format(mp['tokens'], ',')} |"
+            f"| {'–' if not mp else format(mp['tokens'], ',') + ' (' + format(mp['source_tokens'], ',') + ')'} "
+            f"| {qa_cell(mp)} |"
         )
     return head + "\n".join(rows) + "\n"
 
