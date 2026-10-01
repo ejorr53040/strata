@@ -25,6 +25,12 @@ pub fn symbols_with(root: &Path, query: &str, opts: &WalkOptions) -> Vec<Symbol>
             continue;
         };
         let facts = language.extract(&file.rel, &file.text);
+        out.push(Symbol {
+            kind: "module",
+            name: language.module_name(&file.rel),
+            path: file.rel.clone(),
+            line: 1,
+        });
         out.extend(facts.defs.into_iter().map(|d| Symbol {
             kind: d.kind.label(),
             name: d.qualname,

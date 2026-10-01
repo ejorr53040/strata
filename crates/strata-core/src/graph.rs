@@ -519,7 +519,11 @@ impl Index<'_> {
             }
             _ => return None,
         };
-        let kind = targets.first().map_or(r.kind, |t| self.refine(r.kind, t));
+        let kind = match r.kind {
+            // A `use` line stays an import whatever it imports.
+            EdgeKind::Import => EdgeKind::Import,
+            k => targets.first().map_or(k, |t| self.refine(k, t)),
+        };
         if r.local && !matches!(kind, EdgeKind::Variant) && !self.is_const_target(&targets) {
             return None;
         }
@@ -558,6 +562,14 @@ impl Index<'_> {
 
     fn resolve_ref(&self, module: &str, enclosing: Option<&str>, expr: &str) -> Option<Outcome> {
         let lang = self.modules[module].0;
+        if self.modules.contains_key(expr) {
+            return Some(Outcome::Resolved(vec![expr.to_string()]));
+        }
+        // `crate` of a binary: the crate name stands for the `main.rs` module.
+        let main = format!("{expr}.main");
+        if !expr.contains('.') && self.modules.contains_key(&main) {
+            return Some(Outcome::Resolved(vec![main]));
+        }
         let segs: Vec<&str> = expr.split('.').collect();
         if matches!(segs[0], "self" | "Self") {
             let class = enclosing.and_then(|e| self.class_of(module, e))?;
@@ -673,6 +685,12 @@ impl Index<'_> {
         let sub = qualify(module, rest[0]);
         if rest.len() > 1 && self.modules.contains_key(&sub) {
             return self.resolve_in_module(&sub, &rest[1..], any);
+        }
+        // `pub use` re-exports: the module imports the name from elsewhere.
+        if let Lookup::Def(id) = self.follow_reexport(module, rest[0], 0) {
+            if let Some(t) = self.walk_members(&id, &rest[1..]) {
+                return Outcome::Resolved(vec![t]);
+            }
         }
         Outcome::Unresolved(format!(
             "`{}` is not defined in module `{module}`",

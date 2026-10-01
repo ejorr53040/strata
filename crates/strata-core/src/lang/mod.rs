@@ -18,6 +18,7 @@ pub enum DefKind {
     Variant,
     Const,
     Static,
+    Module,
     Method,
 }
 
@@ -34,6 +35,7 @@ impl DefKind {
             DefKind::Variant => "variant",
             DefKind::Const => "const",
             DefKind::Static => "static",
+            DefKind::Module => "module",
             DefKind::Method => "method",
         }
     }

@@ -662,19 +662,32 @@ impl State<'_> {
 
     fn module_item(&mut self, node: Node) {
         let name = self.name_of(node);
+        let name_line = node
+            .child_by_field_name("name")
+            .map_or(self.line(node), |n| self.line(n));
         match node.child_by_field_name("body") {
             Some(body) => {
                 let q = self.qualify(&name);
+                self.facts.defs.push(Def {
+                    qualname: q.clone(),
+                    kind: DefKind::Module,
+                    line: name_line,
+                    bases: Vec::new(),
+                });
                 self.scope.push((q, Scope::Mod));
                 self.walk(body);
                 self.scope.pop();
             }
             // `mod x;` binds `x` to the file `x.rs` / `x/mod.rs` next to this one.
-            None => self.facts.imports.push(Import {
-                local: name.clone(),
-                module: format!("{}.{name}", self.children),
-                name: None,
-            }),
+            None => {
+                let module = format!("{}.{name}", self.children);
+                self.push_ref(module.clone(), name_line, EdgeKind::Path);
+                self.facts.imports.push(Import {
+                    local: name.clone(),
+                    module,
+                    name: None,
+                });
+            }
         }
     }
 
@@ -708,12 +721,16 @@ impl State<'_> {
         };
         match node.kind() {
             "identifier" | "scoped_identifier" | "self" | "crate" | "super" => {
-                let full = join(&prefix, &self.text(node));
-                self.bind(&full, None);
+                let text = self.text(node);
+                self.import_refs(&prefix, &text, self.line(node));
+                self.bind(&join(&prefix, &text), None);
             }
             "use_as_clause" => {
                 let path = node.child_by_field_name("path").map(|n| self.text(n));
                 let alias = node.child_by_field_name("alias").map(|n| self.text(n));
+                if let Some(p) = &path {
+                    self.import_refs(&prefix, p, self.line(node));
+                }
                 if let (Some(p), Some(a)) = (path, alias) {
                     self.bind(&join(&prefix, &p), Some(a));
                 }
@@ -721,7 +738,9 @@ impl State<'_> {
             "scoped_use_list" => {
                 let mut pre = prefix;
                 if let Some(p) = node.child_by_field_name("path") {
-                    pre.push(self.text(p));
+                    let text = self.text(p);
+                    self.import_refs(&pre, &text, self.line(p));
+                    pre.push(text);
                 }
                 if let Some(list) = node.child_by_field_name("list") {
                     self.use_list(list, pre);
@@ -732,6 +751,7 @@ impl State<'_> {
                 let mut c = node.walk();
                 let path = node.named_children(&mut c).next().map(|p| self.text(p));
                 if let Some(p) = path {
+                    self.import_refs(&prefix, &p, self.line(node));
                     let module = self.use_path(&join(&prefix, &p));
                     self.facts.imports.push(Import {
                         local: "*".to_string(),
@@ -741,6 +761,23 @@ impl State<'_> {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// One `Import` reference per segment of `tail` (the part of a `use` path this node
+    /// spells), each naming the path so far: `use a::b::c` gives `a`, `a::b`, `a::b::c`.
+    fn import_refs(&mut self, prefix: &[String], tail: &str, line: usize) {
+        let mut full: Vec<String> = prefix.to_vec();
+        for seg in tail.split("::") {
+            if seg == "self" && !full.is_empty() {
+                // `use a::{self}` names module `a` again.
+                let expr = self.use_path(&full.join("::"));
+                self.push_ref(expr, line, EdgeKind::Import);
+                continue;
+            }
+            full.push(seg.to_string());
+            let expr = self.use_path(&full.join("::"));
+            self.push_ref(expr, line, EdgeKind::Import);
         }
     }
 
