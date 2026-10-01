@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 290" width="760" height="290" role="img" aria-labelledby="t d">
+<title id="t">{title}: recall per run</title>
+<desc id="d">2 runs. Recall of symbols, call sites and call targets against rust-analyzer, and code-review finding counts. Values are in the table below the chart.</desc>
+<style>
+.bg{fill:#fcfcfb} text{font:12px system-ui,sans-serif;fill:#52514e} .h{font-weight:600;fill:#0b0b0b;font-size:13px}
+.v{fill:#0b0b0b;font-weight:600} .grid{stroke:#e4e3df;stroke-width:1} .ln{fill:none;stroke-width:2;stroke-linejoin:round}
+.s1{stroke:#2a78d6} .s2{stroke:#eb6834} .s3{stroke:#1baf7a}
+.d1{fill:#2a78d6} .d2{fill:#eb6834} .d3{fill:#1baf7a} .dot{stroke:#fcfcfb;stroke-width:2} .bar{fill:#2a78d6}
+@media (prefers-color-scheme:dark){.bg{fill:#1a1a19} text{fill:#c3c2b7} .h,.v{fill:#fff} .grid{stroke:#34332f}
+.s1{stroke:#3987e5} .s2{stroke:#d95926} .s3{stroke:#199e70} .d1{fill:#3987e5} .d2{fill:#d95926} .d3{fill:#199e70}
+.dot{stroke:#1a1a19} .bar{fill:#3987e5}}
+</style>
+<rect class="bg" width="760" height="290"/>
+<text class="h" x="64" y="26">Recall vs rust-analyzer (%, higher is better)</text>
+<line class="ln s1" x1="64" x2="82" y1="46" y2="46"/>
+<text x="88" y="50">Symbols</text>
+<line class="ln s2" x1="166" x2="184" y1="46" y2="46"/>
+<text x="190" y="50">Call sites</text>
+<line class="ln s3" x1="292" x2="310" y1="46" y2="46"/>
+<text x="316" y="50">Targets</text>
+<line class="grid" x1="64" x2="640" y1="230.0" y2="230.0"/>
+<text x="56" y="234.0" text-anchor="end">90</text>
+<line class="grid" x1="64" x2="640" y1="198.0" y2="198.0"/>
+<text x="56" y="202.0" text-anchor="end">92</text>
+<line class="grid" x1="64" x2="640" y1="150.0" y2="150.0"/>
+<text x="56" y="154.0" text-anchor="end">95</text>
+<line class="grid" x1="64" x2="640" y1="118.0" y2="118.0"/>
+<text x="56" y="122.0" text-anchor="end">97</text>
+<line class="grid" x1="64" x2="640" y1="70.0" y2="70.0"/>
+<text x="56" y="74.0" text-anchor="end">100</text>
+<polyline class="ln s1" points="64.0,82.5 640.0,70.0"/>
+<circle class="dot d1" cx="64.0" cy="82.5" r="4"><title>run 1 (a924027): Symbols recall 99.2%</title></circle>
+<circle class="dot d1" cx="640.0" cy="70.0" r="4"><title>run 2 (d3b8b09): Symbols recall 100.0%</title></circle>
+<polyline class="ln s2" points="64.0,83.9 640.0,70.0"/>
+<circle class="dot d2" cx="64.0" cy="83.9" r="4"><title>run 1 (a924027): Call sites recall 99.1%</title></circle>
+<circle class="dot d2" cx="640.0" cy="70.0" r="4"><title>run 2 (d3b8b09): Call sites recall 100.0%</title></circle>
+<polyline class="ln s3" points="64.0,97.8 640.0,70.0"/>
+<circle class="dot d3" cx="64.0" cy="97.8" r="4"><title>run 1 (a924027): Targets recall 98.3%</title></circle>
+<circle class="dot d3" cx="640.0" cy="70.0" r="4"><title>run 2 (d3b8b09): Targets recall 100.0%</title></circle>
+<text x="652" y="74.0">Call sites 100.0%</text>
+<text x="652" y="88.0">Symbols 100.0%</text>
+<text x="652" y="102.0">Targets 100.0%</text>
+<text x="64.0" y="250" text-anchor="middle">run 1</text>
+<text x="64.0" y="266" text-anchor="middle">a924027</text>
+<text x="640.0" y="250" text-anchor="middle">run 2</text>
+<text x="640.0" y="266" text-anchor="middle">d3b8b09</text>
+</svg>
