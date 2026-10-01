@@ -49,7 +49,7 @@ impl Language for Rust {
         let mut facts = FileFacts::default();
         let mut impls = Vec::new();
         let children = child_base(rel_path, &module);
-        parse_into(
+        let _ = parse_into(
             src,
             Names {
                 module: &module,
@@ -139,13 +139,13 @@ fn parse_into(
     outer_locals: &[HashSet<String>],
     facts: &mut FileFacts,
     impls: &mut Vec<(String, String)>,
-) {
+) -> bool {
     let mut parser = Parser::new();
     parser
         .set_language(&tree_sitter_rust::LANGUAGE.into())
         .unwrap();
     let Some(tree) = parser.parse(src, None) else {
-        return;
+        return true;
     };
     let Names { module, children } = names;
     let krate = module.split('.').next().unwrap_or(module);
@@ -163,6 +163,7 @@ fn parse_into(
     };
     st.declared_mods = declared_mods(tree.root_node(), src.as_bytes());
     st.walk(tree.root_node());
+    tree.root_node().has_error()
 }
 
 fn declared_mods(root: Node, src: &[u8]) -> HashSet<String> {
@@ -205,7 +206,12 @@ impl State<'_> {
                     self.call(child);
                     self.walk(child);
                 }
-                "macro_invocation" => self.macro_call(child),
+                "type_item" => self.type_def(child, DefKind::TypeAlias),
+                "macro_invocation" => {
+                    if !self.define_macro_fn(child) {
+                        self.macro_call(child);
+                    }
+                }
                 _ => self.walk(child),
             }
         }
@@ -400,7 +406,19 @@ impl State<'_> {
                 }
             }
             "use_list" => self.use_list(node, prefix),
-            _ => {} // `use a::*` binds names we cannot enumerate.
+            "use_wildcard" => {
+                let mut c = node.walk();
+                let path = node.named_children(&mut c).next().map(|p| self.text(p));
+                if let Some(p) = path {
+                    let module = self.use_path(&join(&prefix, &p));
+                    self.facts.imports.push(Import {
+                        local: "*".to_string(),
+                        module,
+                        name: Some("*".to_string()),
+                    });
+                }
+            }
+            _ => {}
         }
     }
 
@@ -411,16 +429,21 @@ impl State<'_> {
         }
     }
 
-    /// Bind `a::b::c` (optionally aliased): the last segment is the imported name.
-    fn bind(&mut self, full: &str, alias: Option<String>) {
-        let full = full.strip_suffix("::self").unwrap_or(full);
+    /// A `use` path as a dotted module path. `use x::f` where `mod x;` is declared here
+    /// names the file beside/under this one.
+    fn use_path(&self, full: &str) -> String {
         let first = full.split("::").next().unwrap_or(full);
-        // `use x::f` where `mod x;` is declared here names the file beside/under this one.
-        let dotted = if self.declared_mods.contains(first) {
+        if self.declared_mods.contains(first) {
             format!("{}.{}", self.children, full.replace("::", "."))
         } else {
             self.path(full)
-        };
+        }
+    }
+
+    /// Bind `a::b::c` (optionally aliased): the last segment is the imported name.
+    fn bind(&mut self, full: &str, alias: Option<String>) {
+        let full = full.strip_suffix("::self").unwrap_or(full);
+        let dotted = self.use_path(full);
         match dotted.rsplit_once('.') {
             Some((module, name)) if !full.ends_with("::self") => {
                 self.facts.imports.push(Import {
@@ -453,29 +476,31 @@ impl State<'_> {
             return;
         };
         let callee = self.callee(f);
-        if callee == "__strata_macro" || self.is_constructor_or_closure(&callee) {
+        if callee != "__strata_macro" {
+            self.push_call(callee, self.line(node));
+        }
+    }
+
+    fn push_call(&mut self, callee: String, line: usize) {
+        // `Enum::Variant(..)` and `Wrapper(..)` build values; they are not call edges.
+        let last = callee.rsplit('.').next().unwrap_or(&callee);
+        if last.starts_with(|c: char| c.is_uppercase()) {
             return;
         }
+        let local = !callee.contains('.') && self.is_local(&callee);
         let enclosing = self.enclosing_fn();
         self.facts.calls.push(Call {
             enclosing,
             callee,
-            line: self.line(node),
+            line,
+            local,
         });
-    }
-
-    /// `Enum::Variant(..)` and `Wrapper(..)` build values, and `f(..)` on a local binding
-    /// calls a closure or fn pointer; neither is a call edge we can resolve.
-    fn is_constructor_or_closure(&self, callee: &str) -> bool {
-        let last = callee.rsplit('.').next().unwrap_or(callee);
-        last.starts_with(|c: char| c.is_uppercase())
-            || (!callee.contains('.') && self.is_local(callee))
     }
 
     fn callee(&self, f: Node) -> String {
         match f.kind() {
             "identifier" => self.text(f),
-            "scoped_identifier" => self.path(&self.text(f)),
+            "scoped_identifier" => self.path(&strip_generics(&self.text(f))),
             "generic_function" => f
                 .child_by_field_name("function")
                 .map(|g| self.callee(g))
@@ -499,6 +524,75 @@ impl State<'_> {
         }
     }
 
+    /// Calls in a macro body that is not valid Rust: every `name (..)` pair of tokens.
+    fn scan_tokens(&mut self, tt: Node) {
+        let mut c = tt.walk();
+        let kids: Vec<Node> = tt.children(&mut c).collect();
+        for (i, k) in kids.iter().enumerate() {
+            if k.kind() == "token_tree" {
+                self.scan_tokens(*k);
+                continue;
+            }
+            let called = kids
+                .get(i + 1)
+                .is_some_and(|n| n.kind() == "token_tree" && self.text(*n).starts_with('('));
+            if k.kind() != "identifier" || !called {
+                continue;
+            }
+            let mut callee = self.text(*k);
+            if i >= 1 && kids[i - 1].kind() == "." {
+                callee = format!("_.{callee}");
+            } else {
+                let mut j = i;
+                while j >= 2 && kids[j - 1].kind() == "::" && kids[j - 2].kind() == "identifier" {
+                    callee = format!("{}::{callee}", self.text(kids[j - 2]));
+                    j -= 2;
+                }
+                callee = self.path(&callee);
+            }
+            self.push_call(callee, self.line(*k));
+        }
+    }
+
+    /// Item-position macros that define a function named by their first argument.
+    /// Only a known family is recognised; other macro-generated items stay invisible.
+    fn define_macro_fn(&mut self, node: Node) -> bool {
+        if self.enclosing_fn().is_some() {
+            return false;
+        }
+        let Some(mac) = node.child_by_field_name("macro") else {
+            return false;
+        };
+        let name = self.text(mac);
+        if !name
+            .rsplit("::")
+            .next()
+            .unwrap_or(&name)
+            .starts_with("ioctl_")
+        {
+            return false;
+        }
+        let mut c = node.walk();
+        let Some(tt) = node.children(&mut c).find(|n| n.kind() == "token_tree") else {
+            return false;
+        };
+        let mut c2 = tt.walk();
+        let Some(first) = tt
+            .named_children(&mut c2)
+            .find(|n| n.kind() == "identifier")
+        else {
+            return false;
+        };
+        let qualname = self.qualify(&self.text(first));
+        self.facts.defs.push(Def {
+            qualname,
+            kind: DefKind::Function,
+            line: self.line(node),
+            bases: Vec::new(),
+        });
+        true
+    }
+
     /// Macro arguments are opaque tokens to tree-sitter. Most std macros take expression
     /// lists, so re-parse them as call arguments to recover the calls inside.
     fn macro_call(&mut self, node: Node) {
@@ -514,7 +608,7 @@ impl State<'_> {
         let mut impls = Vec::new();
         let scope = self.scope.clone();
         let locals = self.locals.clone();
-        parse_into(
+        let had_error = parse_into(
             &snippet,
             Names {
                 module: self.module,
@@ -526,6 +620,12 @@ impl State<'_> {
             &mut tmp,
             &mut impls,
         );
+        if had_error {
+            // Not an expression list (`json!({ "k": f(x) })`): tree-sitter's error recovery
+            // invents calls, so read `name(..)` token pairs instead.
+            self.scan_tokens(tt);
+            return;
+        }
         // Keep calls only; the synthetic fn is not a definition.
         let enclosing = self.enclosing_fn();
         for mut call in tmp.calls {
@@ -539,6 +639,23 @@ impl State<'_> {
             self.facts.calls.push(call);
         }
     }
+}
+
+/// `Vec::<T>::new` -> `Vec::new`: generic arguments never change which function is named.
+fn strip_generics(s: &str) -> String {
+    let mut depth = 0;
+    let mut out = String::new();
+    for c in s.chars() {
+        match c {
+            '<' => depth += 1,
+            '>' if depth > 0 => depth -= 1,
+            c if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    out.replace("::::", "::")
+        .trim_start_matches("::")
+        .to_string()
 }
 
 /// `x`, `self`, `self.a.b`: receivers we can name. Anything else (calls, indexing) is unknown.

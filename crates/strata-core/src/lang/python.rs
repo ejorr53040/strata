@@ -185,6 +185,7 @@ impl State<'_> {
             enclosing,
             callee,
             line: node.start_position().row + 1,
+            local: false,
         });
     }
 

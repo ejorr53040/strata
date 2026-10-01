@@ -143,6 +143,9 @@ pub fn build(sources: &[Source], unindexed_modules: &[String]) -> Graph {
     let mut edges = Vec::new();
     for (module, (_, facts, path)) in &index.modules {
         for call in &facts.calls {
+            if call.local && matches!(index.lookup(module, &call.callee), Lookup::Missing) {
+                continue; // a closure or fn-pointer call: no function of that name is in scope
+            }
             edges.push(index.edge(module, path, call));
         }
     }
@@ -234,6 +237,16 @@ impl Index<'_> {
         }) {
             return self.module_ref(name, format!("import {}", imp.module));
         }
+        // `use m::*`: names the glob module defines.
+        for imp in facts.imports.iter().filter(|i| i.local == "*") {
+            let full = qualify(&imp.module, name);
+            if self.symbols.contains_key(&full) {
+                return Lookup::Def(full);
+            }
+            if self.modules.contains_key(&full) {
+                return Lookup::Module(full);
+            }
+        }
         if lang.is_builtin(name) {
             return Lookup::External("builtin".into());
         }
@@ -321,7 +334,7 @@ impl Index<'_> {
     }
 
     /// `self.name()` inside `class`: the inherited definition plus every override below it.
-    fn dispatch(&self, class: &str, name: &str) -> Outcome {
+    fn dispatch(&self, lang: &dyn Language, class: &str, name: &str) -> Outcome {
         let mut targets: Vec<String> = self.find_method(class, name).into_iter().collect();
         for d in self.descendants(class) {
             let id = format!("{d}.{name}");
@@ -332,6 +345,9 @@ impl Index<'_> {
         targets.sort();
         targets.dedup();
         match targets.len() {
+            0 if lang.unindexed_members_are_external() => Outcome::External(format!(
+                "no indexed method `{name}` on `{class}`; derived or trait method"
+            )),
             0 => Outcome::Unresolved(format!(
                 "no indexed method `{name}` on `{class}` or its bases"
             )),
@@ -364,7 +380,7 @@ impl Index<'_> {
         let segs: Vec<&str> = callee.split('.').collect();
         if let (["self" | "cls", name], Some(enc)) = (segs.as_slice(), enclosing) {
             if let Some(class) = self.enclosing_class(module, enc) {
-                return self.dispatch(&class, name);
+                return self.dispatch(lang, &class, name);
             }
         }
         for k in (1..=segs.len()).rev() {

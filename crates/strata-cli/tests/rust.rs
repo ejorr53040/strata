@@ -133,3 +133,60 @@ fn dogfood_round_two_crate_root_mods_and_match_guards() {
         vec!["resolved app.main.guard -> app.main.helper_fn app/src/main.rs:51"]
     );
 }
+
+// Gaps found by running strata on cirrocumulus.
+
+#[test]
+fn let_binding_does_not_hide_the_function_it_is_initialised_from() {
+    assert_eq!(
+        run(&["callees", "app.main.shadow_call"]),
+        vec!["resolved app.main.shadow_call -> app.main.pick app/src/main.rs:65"]
+    );
+}
+
+#[test]
+fn glob_imports_of_the_parent_module_resolve_in_test_files() {
+    assert_eq!(
+        run(&["callees", "app.helper.tests.t"]),
+        vec!["resolved app.helper.tests.t -> app.helper.go app/src/helper/tests.rs:4"]
+    );
+}
+
+#[test]
+fn calls_inside_json_style_macros_are_found() {
+    assert_eq!(
+        run(&["callees", "app.main.json_like"]),
+        vec!["resolved app.main.json_like -> app.main.helper_fn app/src/main.rs:71"]
+    );
+}
+
+#[test]
+fn derived_methods_on_self_are_external_not_unresolved() {
+    assert_eq!(
+        run(&["callees", "shapes.Marker.dup"]),
+        vec!["external shapes.Marker.dup -> self.clone (no indexed method `clone` on `shapes.Marker`; derived or trait method) shapes/src/lib.rs:67"]
+    );
+}
+
+#[test]
+fn turbofish_paths_are_ordinary_paths() {
+    assert_eq!(
+        run(&["callees", "app.main.turbofish"]),
+        vec!["external app.main.turbofish -> Vec.new (builtin) app/src/main.rs:77"]
+    );
+}
+
+#[test]
+fn type_aliases_are_symbols() {
+    assert!(run(&["symbols", "Radius"]).contains(&"type Radius shapes/src/lib.rs:60".to_string()));
+}
+
+#[test]
+fn functions_generated_by_ioctl_macros_are_defined() {
+    assert!(run(&["symbols", "tun_none"])
+        .contains(&"function tun_none shapes/src/lib.rs:71".to_string()));
+    assert_eq!(
+        run(&["callees", "shapes.use_ioctl"]),
+        vec!["resolved shapes.use_ioctl -> shapes.tun_none shapes/src/lib.rs:74"]
+    );
+}

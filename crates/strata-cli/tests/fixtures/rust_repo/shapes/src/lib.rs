@@ -56,3 +56,20 @@ impl Circle {
             .area()
     }
 }
+
+pub type Radius = f64;
+
+#[derive(Clone)]
+pub struct Marker;
+
+impl Marker {
+    fn dup(&self) -> Self {
+        self.clone()
+    }
+}
+
+nix::ioctl_none!(tun_none, 0x54, 1);
+
+pub fn use_ioctl() {
+    tun_none();
+}

@@ -56,3 +56,23 @@ fn guard(o: Option<i32>) -> bool {
 fn helper_fn(_x: i32) -> bool {
     true
 }
+
+fn pick() -> i32 {
+    1
+}
+
+fn shadow_call() {
+    let pick = pick();
+    let _ = pick;
+}
+
+fn json_like(config: Cfg) {
+    let _v = serde_json::json!({
+        "kernel_image_path": helper_fn(&config.kernel_image_path),
+        "boot_args": config.boot_args,
+    });
+}
+
+fn turbofish() {
+    let _v = Vec::<String>::new();
+}

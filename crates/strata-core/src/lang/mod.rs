@@ -11,6 +11,7 @@ pub enum DefKind {
     Struct,
     Enum,
     Trait,
+    TypeAlias,
     Method,
 }
 
@@ -22,6 +23,7 @@ impl DefKind {
             DefKind::Struct => "struct",
             DefKind::Enum => "enum",
             DefKind::Trait => "trait",
+            DefKind::TypeAlias => "type",
             DefKind::Method => "method",
         }
     }
@@ -61,6 +63,10 @@ pub struct Call {
     /// Callee expression as written, e.g. `helper`, `u.other`, `self.step`.
     pub callee: String,
     pub line: usize,
+    /// A bare name that a local binding of the same name might shadow. The call is to the
+    /// function of that name when one is in scope (`let x = x();`), else to a closure we
+    /// cannot see, in which case it is dropped.
+    pub local: bool,
 }
 
 #[derive(Debug, Clone, Default)]
