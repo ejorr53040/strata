@@ -82,8 +82,37 @@ pub struct Markup {
     page_refs: Vec<(String, SheetRef)>,
     /// Per HTML file, `<script src>` values.
     page_scripts: Vec<(String, String)>,
+    /// Every indexed script file, for resolving `<script src>`.
+    scripts: Vec<String>,
     /// DOM lookups in script files: (script path, caller id, lookup).
     dom: Vec<(String, String, crate::lang::DomRef)>,
+}
+
+/// An HTML page: what it loads and the ids and classes its elements carry.
+#[derive(Debug, Serialize)]
+pub struct Page {
+    pub path: String,
+    /// Stylesheet files that apply to it, in cascade order.
+    pub stylesheets: Vec<String>,
+    pub inline_styles: usize,
+    /// Indexed script files its `<script src>` tags load.
+    pub scripts: Vec<String>,
+    pub ids: Vec<String>,
+    pub classes: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Stylesheet {
+    /// A `.css` file, or the HTML file holding `<style>` blocks.
+    pub path: String,
+    pub rules: Vec<SheetRule>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SheetRule {
+    pub selector: String,
+    pub line: usize,
+    pub unused: bool,
 }
 
 /// A DOM lookup in script code and what it reaches.
@@ -125,6 +154,9 @@ pub fn build(sources: &[Source]) -> Markup {
         let Some(lang) = crate::lang::for_path(&s.path) else {
             continue;
         };
+        if lang.name() == "javascript" {
+            m.scripts.push(s.path.clone());
+        }
         let module = lang.module_name(&s.path);
         for d in lang.extract(&s.path, &s.text).dom {
             let caller =
@@ -394,6 +426,67 @@ impl Markup {
                 }
             }
             out.push(r);
+        }
+        out
+    }
+
+    pub fn pages(&self) -> Vec<Page> {
+        self.pages
+            .keys()
+            .map(|page| {
+                let sheets = self.sheets_of(page);
+                let mut ids = std::collections::BTreeSet::new();
+                let mut classes = std::collections::BTreeSet::new();
+                for e in self.elements.iter().filter(|e| &e.path == page) {
+                    ids.extend(e.id.iter().cloned());
+                    classes.extend(e.classes.iter().cloned());
+                }
+                let scripts: Vec<&str> = self.scripts.iter().map(String::as_str).collect();
+                let mut loaded = Vec::new();
+                for (_, src) in self.page_scripts.iter().filter(|(p, _)| p == page) {
+                    for i in resolve_ref(page, src, &scripts) {
+                        if !loaded.contains(&self.scripts[i]) {
+                            loaded.push(self.scripts[i].clone());
+                        }
+                    }
+                }
+                Page {
+                    path: page.clone(),
+                    stylesheets: sheets
+                        .iter()
+                        .filter(|&&s| is_css(&self.sheets[s]))
+                        .map(|&s| self.sheets[s].clone())
+                        .collect(),
+                    inline_styles: sheets.iter().filter(|&&s| !is_css(&self.sheets[s])).count(),
+                    scripts: loaded,
+                    ids: ids.into_iter().collect(),
+                    classes: classes.into_iter().collect(),
+                }
+            })
+            .collect()
+    }
+
+    /// Every stylesheet with its rules; a page's `<style>` blocks are one entry under its path.
+    pub fn stylesheets(&self) -> Vec<Stylesheet> {
+        let unused: Vec<(String, usize, String)> = self
+            .unused_selectors()
+            .into_iter()
+            .map(|w| (w.path, w.line, w.selector))
+            .collect();
+        let mut out: Vec<Stylesheet> = Vec::new();
+        for r in &self.rules {
+            let rule = SheetRule {
+                selector: r.selector.clone(),
+                line: r.line,
+                unused: unused.contains(&(r.path.clone(), r.line, r.selector.clone())),
+            };
+            match out.iter_mut().find(|s| s.path == r.path) {
+                Some(s) => s.rules.push(rule),
+                None => out.push(Stylesheet {
+                    path: r.path.clone(),
+                    rules: vec![rule],
+                }),
+            }
         }
         out
     }

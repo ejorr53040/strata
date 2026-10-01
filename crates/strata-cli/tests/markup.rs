@@ -165,3 +165,39 @@ fn selector_refs_link_literal_dom_selectors_to_elements_and_rules() {
         ])
     );
 }
+
+#[test]
+fn pages_list_what_each_page_loads_and_names() {
+    assert_eq!(
+        call("pages", json!({})),
+        json!([{
+            "path": "site/index.html",
+            "stylesheets": ["site/base.css", "site/theme.css"],
+            "inline_styles": 1,
+            "scripts": ["site/app.js"],
+            "ids": ["main"],
+            "classes": ["card", "title", "wide"],
+        }])
+    );
+}
+
+#[test]
+fn stylesheets_list_rules_and_mark_the_unused() {
+    let r = |selector: &str, line: usize, unused: bool| json!({"selector": selector, "line": line, "unused": unused});
+    assert_eq!(
+        call("stylesheets", json!({})),
+        json!([
+            {"path": "site/base.css", "rules": [
+                r("p", 1, false), r(".card", 2, false), r("#main .card", 3, false),
+                r(".card.wide", 4, false), r(".unused", 4, true), r("div > .title", 5, false),
+            ]},
+            {"path": "site/orphan.css", "rules": [r(".card", 1, true)]},
+            {"path": "site/theme.css", "rules": [
+                r(".card", 1, false), r("p", 2, false), r(".card", 3, false),
+                r(".card:hover", 4, false), r(".card.open", 5, false),
+            ]},
+            // A `<style>` block is listed under its page.
+            {"path": "site/index.html", "rules": [r(".title", 7, false)]},
+        ])
+    );
+}

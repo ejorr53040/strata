@@ -85,6 +85,16 @@ pub fn catalog() -> Vec<Value> {
             },
         }),
         json!({
+            "name": "pages",
+            "description": "Every indexed HTML page: the stylesheet files that apply to it (cascade order), its <style> block count, the indexed scripts its <script src> tags load, and the ids and classes its elements carry.",
+            "input_schema": none,
+        }),
+        json!({
+            "name": "stylesheets",
+            "description": "Every stylesheet (a .css file, or a page's <style> blocks under the page's path) with each rule's selector, line, and whether it is unused (see unused_selectors).",
+            "input_schema": none,
+        }),
+        json!({
             "name": "references",
             "description": "Every connection of any kind (call, and as depth grows: type use, value use, field, variant, impl, import) whose targets include the symbol.",
             "input_schema": sym("Fully qualified id or a unique dotted suffix"),
@@ -153,6 +163,12 @@ pub fn call(root: &Path, opts: &WalkOptions, name: &str, args: &Value) -> Result
                 m.selector_refs(args.get("path").and_then(Value::as_str))
             ))
         }
+        "pages" => Ok(json!(
+            crate::markup::build(&graph::load_with(root, opts)).pages()
+        )),
+        "stylesheets" => Ok(json!(
+            crate::markup::build(&graph::load_with(root, opts)).stylesheets()
+        )),
         "references" => {
             let g = graph::build(&graph::load_with(root, opts), &[]);
             Ok(json!(g.references(str_arg("symbol")?)))
