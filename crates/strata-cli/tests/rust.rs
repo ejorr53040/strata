@@ -355,6 +355,7 @@ fn modules_are_symbols_and_path_segments_and_uses_are_edges_to_them() {
             "resolved[path] shapes.Circle.area -> shapes.util shapes/src/lib.rs:29",
             "resolved[import] shapes.<module> -> shapes.util shapes/src/lib.rs:50",
             "resolved[path] shapes.via_inline -> shapes.util shapes/src/lib.rs:115",
+            "resolved[path] shapes.via_inline_missing -> shapes.util shapes/src/lib.rs:121",
             "resolved[import] shapes.util.inline_tests -> shapes.util shapes/src/util.rs:17",
             "resolved[import] shapes.util.cyc -> shapes.util shapes/src/util.rs:40",
         ]
