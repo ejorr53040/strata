@@ -137,7 +137,23 @@ pub struct FileFacts {
     pub calls: Vec<Call>,
 }
 
+/// What a reader of a definition wants besides its name: its signature and summary line.
+#[derive(Debug, Clone)]
+pub struct Described {
+    /// Same line as the matching [`Def`]; `name` is its last qualname segment.
+    pub line: usize,
+    pub name: String,
+    pub sig: String,
+    pub doc: Option<String>,
+}
+
 pub trait Language: Sync {
+    /// Signatures and doc summaries for every definition in a file. A `<module>` entry at
+    /// line 1 carries the file's own doc (`//!`).
+    fn describe(&self, _rel_path: &str, _src: &str) -> Vec<Described> {
+        Vec::new()
+    }
+
     fn name(&self) -> &'static str;
     fn extensions(&self) -> &'static [&'static str];
     /// Dotted module name for a repo-relative path.

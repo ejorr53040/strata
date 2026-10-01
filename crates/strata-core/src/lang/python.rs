@@ -1,4 +1,4 @@
-use super::{Call, Def, DefKind, FileFacts, Import, Language};
+use super::{Call, Def, DefKind, Described, FileFacts, Import, Language};
 use tree_sitter::{Node, Parser};
 
 pub struct Python;
@@ -37,6 +37,18 @@ impl Language for Python {
         };
         st.walk(tree.root_node());
         facts
+    }
+
+    fn describe(&self, _rel_path: &str, src: &str) -> Vec<Described> {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_python::LANGUAGE.into())
+            .unwrap();
+        let mut out = Vec::new();
+        if let Some(tree) = parser.parse(src, None) {
+            describe_walk(tree.root_node(), src.as_bytes(), &mut out);
+        }
+        out
     }
 
     fn is_builtin(&self, name: &str) -> bool {
@@ -270,5 +282,45 @@ impl State<'_> {
                 name: Some(name),
             });
         }
+    }
+}
+
+/// `def f(a, b) -> int` / `class C(Base)` as written, plus the docstring's first line.
+fn describe_walk(node: Node, src: &[u8], out: &mut Vec<Described>) {
+    let mut c = node.walk();
+    for ch in node.children(&mut c) {
+        if matches!(ch.kind(), "function_definition" | "class_definition") {
+            let (Some(name), Some(body)) = (
+                ch.child_by_field_name("name"),
+                ch.child_by_field_name("body"),
+            ) else {
+                continue;
+            };
+            let head = std::str::from_utf8(&src[ch.start_byte()..body.start_byte()])
+                .unwrap_or_default()
+                .trim()
+                .trim_end_matches(':')
+                .trim();
+            let doc = body
+                .named_child(0)
+                .filter(|s| s.kind() == "expression_statement")
+                .and_then(|s| s.named_child(0))
+                .filter(|s| s.kind() == "string")
+                .and_then(|s| s.utf8_text(src).ok())
+                .and_then(|t| {
+                    t.trim_matches(|c| c == '"' || c == '\'')
+                        .lines()
+                        .map(str::trim)
+                        .find(|l| !l.is_empty())
+                        .map(str::to_string)
+                });
+            out.push(Described {
+                line: ch.start_position().row + 1,
+                name: name.utf8_text(src).unwrap_or_default().to_string(),
+                sig: head.split_whitespace().collect::<Vec<_>>().join(" "),
+                doc,
+            });
+        }
+        describe_walk(ch, src, out);
     }
 }

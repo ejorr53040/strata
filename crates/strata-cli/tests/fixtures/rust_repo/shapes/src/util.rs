@@ -30,3 +30,8 @@ impl crate::Circle {
         1.0
     }
 }
+
+/// Doubles a value.
+pub fn double_it(x: f64) -> f64 {
+    x * 2.0
+}

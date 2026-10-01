@@ -2,7 +2,7 @@
 //! module `crates/x-y/src/a/b.rs` is `x_y.a.b`, `impl T { fn m }` defines `T.m`, and a path
 //! `crate::a::f` becomes `x_y.a.f`.
 
-use super::{Binding, Call, Def, DefKind, FileFacts, Import, Language, Ref, TypeHint};
+use super::{Binding, Call, Def, DefKind, Described, FileFacts, Import, Language, Ref, TypeHint};
 use crate::graph::EdgeKind;
 use std::collections::HashSet;
 use tree_sitter::{Node, Parser};
@@ -20,6 +20,27 @@ impl Language for Rust {
 
     fn module_name(&self, rel_path: &str) -> String {
         module_of(rel_path)
+    }
+
+    fn describe(&self, _rel_path: &str, src: &str) -> Vec<Described> {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .unwrap();
+        let mut out = Vec::new();
+        if let Some(tree) = parser.parse(src, None) {
+            let root = tree.root_node();
+            if let Some(doc) = inner_doc(root, src.as_bytes()) {
+                out.push(Described {
+                    line: 1,
+                    name: "<module>".into(),
+                    sig: String::new(),
+                    doc: Some(doc),
+                });
+            }
+            describe_walk(root, src.as_bytes(), &mut out);
+        }
+        out
     }
 
     fn extract(&self, rel_path: &str, src: &str) -> FileFacts {
@@ -83,6 +104,116 @@ fn module_of(rel_path: &str) -> String {
         .chain(parts)
         .collect::<Vec<_>>()
         .join(".")
+}
+
+/// Collapse whitespace and cap the length (on a char boundary).
+fn tidy(s: &str, max: usize) -> String {
+    let one: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    if one.chars().count() <= max {
+        return one;
+    }
+    let cut: String = one.chars().take(max.saturating_sub(1)).collect();
+    format!("{cut}…")
+}
+
+/// First line of the `///` comments directly above an item (attributes may sit between).
+fn outer_doc(node: Node, src: &[u8]) -> Option<String> {
+    let mut lines = Vec::new();
+    let mut prev = node.prev_sibling();
+    while let Some(p) = prev {
+        match p.kind() {
+            "attribute_item" => {}
+            "line_comment" => {
+                let t = p.utf8_text(src).unwrap_or_default();
+                match t.strip_prefix("///").filter(|r| !r.starts_with('/')) {
+                    Some(rest) => lines.push(rest.trim().to_string()),
+                    None => break,
+                }
+            }
+            _ => break,
+        }
+        prev = p.prev_sibling();
+    }
+    lines.reverse();
+    lines
+        .into_iter()
+        .find(|l| !l.is_empty())
+        .map(|l| tidy(&l, 140))
+}
+
+/// First line of the file's leading `//!` comments.
+fn inner_doc(root: Node, src: &[u8]) -> Option<String> {
+    let mut c = root.walk();
+    let mut first = None;
+    for ch in root.children(&mut c) {
+        if ch.kind() != "line_comment" {
+            break;
+        }
+        let t = ch.utf8_text(src).unwrap_or_default();
+        if let Some(rest) = t.strip_prefix("//!") {
+            let rest = rest.trim();
+            if first.is_none() && !rest.is_empty() {
+                first = Some(tidy(rest, 140));
+            }
+        }
+    }
+    first
+}
+
+fn describe_walk(node: Node, src: &[u8], out: &mut Vec<Described>) {
+    let text = |n: Node| n.utf8_text(src).unwrap_or_default();
+    let mut c = node.walk();
+    for ch in node.children(&mut c) {
+        let header = |end: Option<Node>| {
+            let to = end.map_or(ch.end_byte(), |b| b.start_byte());
+            let raw = std::str::from_utf8(&src[ch.start_byte()..to]).unwrap_or_default();
+            tidy(raw.trim().trim_end_matches([';', ',']).trim(), 200)
+        };
+        let named = |out: &mut Vec<Described>, name: Node, line: usize, sig: String| {
+            out.push(Described {
+                line,
+                name: text(name).to_string(),
+                sig,
+                doc: outer_doc(ch, src),
+            });
+        };
+        let line = ch.start_position().row + 1;
+        match ch.kind() {
+            "function_item" | "function_signature_item" => {
+                if let Some(n) = ch.child_by_field_name("name") {
+                    named(out, n, line, header(ch.child_by_field_name("body")));
+                }
+            }
+            "struct_item" | "enum_item" | "trait_item" | "union_item" => {
+                if let Some(n) = ch.child_by_field_name("name") {
+                    named(out, n, line, header(ch.child_by_field_name("body")));
+                }
+            }
+            "type_item" => {
+                if let Some(n) = ch.child_by_field_name("name") {
+                    named(out, n, line, header(None));
+                }
+            }
+            "const_item" | "static_item" => {
+                if let Some(n) = ch.child_by_field_name("name") {
+                    let end = ch.child_by_field_name("value");
+                    named(
+                        out,
+                        n,
+                        line,
+                        header(end).trim_end_matches('=').trim().to_string(),
+                    );
+                }
+            }
+            "field_declaration" | "enum_variant" => {
+                if let Some(n) = ch.child_by_field_name("name") {
+                    named(out, n, n.start_position().row + 1, header(None));
+                }
+            }
+            _ => {}
+        }
+        describe_walk(ch, src, out);
+    }
 }
 
 /// Prelude items and std crates: always in scope, never indexed.

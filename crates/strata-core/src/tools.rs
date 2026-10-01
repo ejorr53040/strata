@@ -43,6 +43,17 @@ pub fn catalog() -> Vec<Value> {
             "input_schema": sym("Fully qualified id or a unique dotted suffix, e.g. `graph.build`"),
         }),
         json!({
+            "name": "map",
+            "description": "The whole repo as compact text: every module, definition (with signature and doc summary) and, under each, what it calls and what calls it (plus uses, impls, types, fields at higher levels). Read this first to know the codebase without opening files. `level` 0-3 sets detail; `budget_tokens` picks the richest level that fits.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "level": {"type": "integer", "minimum": 0, "maximum": 3},
+                    "budget_tokens": {"type": "integer", "minimum": 1}
+                }
+            },
+        }),
+        json!({
             "name": "references",
             "description": "Every connection of any kind (call, and as depth grows: type use, value use, field, variant, impl, import) whose targets include the symbol.",
             "input_schema": sym("Fully qualified id or a unique dotted suffix"),
@@ -78,6 +89,16 @@ pub fn call(root: &Path, opts: &WalkOptions, name: &str, args: &Value) -> Result
         "callees" => {
             let g = graph::build(&graph::load_with(root, opts), &[]);
             Ok(json!(g.callees(str_arg("symbol")?)))
+        }
+        "map" => {
+            let level = args.get("level").and_then(Value::as_u64).map(|l| l as u8);
+            let budget = args
+                .get("budget_tokens")
+                .and_then(Value::as_u64)
+                .map(|b| b as usize);
+            Ok(json!(crate::map::summary(&crate::map::build(
+                root, opts, level, budget
+            ))))
         }
         "references" => {
             let g = graph::build(&graph::load_with(root, opts), &[]);

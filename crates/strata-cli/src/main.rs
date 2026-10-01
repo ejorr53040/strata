@@ -50,6 +50,15 @@ enum Cmd {
         #[arg(default_value = "{}")]
         args: String,
     },
+    /// The whole repo as compact text: modules, signatures, docs and connections
+    Map {
+        /// Detail 0 (definitions only) to 3 (every connection)
+        #[arg(long)]
+        level: Option<u8>,
+        /// Pick the richest level that fits this many tokens (estimated)
+        #[arg(long)]
+        budget: Option<usize>,
+    },
     /// Print how agents should use strata
     Guide,
     /// Find symbols by name substring
@@ -208,6 +217,13 @@ fn run() -> Result<(), String> {
             "{}",
             serde_json::to_string_pretty(&strata_core::tools::catalog()).unwrap()
         ),
+        Cmd::Map { level, budget } => {
+            let opts = walk_options(&root, &cli.set)?;
+            print!(
+                "{}",
+                strata_core::map::build(&root, &opts, level, budget).text
+            );
+        }
         Cmd::Guide => print!("{}", include_str!("../../../docs/agents/using-strata.md")),
         Cmd::Call { tool, args } => {
             let args: serde_json::Value =
