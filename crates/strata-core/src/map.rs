@@ -33,8 +33,12 @@ const STEPS: &[(u8, usize, bool)] = &[
     (1, 100, false),
     (0, 80, false),
 ];
-/// A connection list longer than this is cut with a `+n` note.
-const LIST_CAP: usize = 40;
+/// Longest connection list (calls, uses, ...) before it is cut with a `+n` note.
+const LIST_CAP: usize = 25;
+/// Callers and module dependencies are shorter: they are the inverse of lists shown elsewhere.
+const INVERSE_CAP: usize = 12;
+/// A candidate set (`a|b|c`) of more than this many targets is cut with a `+n` note.
+const ALT_CAP: usize = 4;
 
 struct Item {
     id: String,
@@ -234,11 +238,16 @@ impl<'a> Ctx<'a> {
                 }
             }
             let one_of = || {
-                e.targets
+                let mut names: Vec<String> = e
+                    .targets
                     .iter()
+                    .take(ALT_CAP)
                     .map(|t| self.name(t))
-                    .collect::<Vec<_>>()
-                    .join("|")
+                    .collect();
+                if e.targets.len() > ALT_CAP {
+                    names.push(format!("+{}", e.targets.len() - ALT_CAP));
+                }
+                names.join("|")
             };
             match (e.kind, internal) {
                 (EdgeKind::Call, true) => {
@@ -270,21 +279,24 @@ impl<'a> Ctx<'a> {
             }
         }
 
-        let list =
-            |prefix: &str, set: Option<&BTreeSet<String>>, indent: &str, out: &mut String| {
-                let Some(set) = set.filter(|s| !s.is_empty()) else {
-                    return;
-                };
-                let shown: Vec<&str> = set.iter().take(LIST_CAP).map(String::as_str).collect();
-                out.push_str(indent);
-                out.push_str(prefix);
-                out.push(' ');
-                out.push_str(&shown.join(", "));
-                if set.len() > LIST_CAP {
-                    out.push_str(&format!(" … +{}", set.len() - LIST_CAP));
-                }
-                out.push('\n');
+        let list = |prefix: &str,
+                    set: Option<&BTreeSet<String>>,
+                    cap: usize,
+                    indent: &str,
+                    out: &mut String| {
+            let Some(set) = set.filter(|s| !s.is_empty()) else {
+                return;
             };
+            let shown: Vec<&str> = set.iter().take(cap).map(String::as_str).collect();
+            out.push_str(indent);
+            out.push_str(prefix);
+            out.push(' ');
+            out.push_str(&shown.join(", "));
+            if set.len() > LIST_CAP {
+                out.push_str(&format!(" … +{}", set.len() - LIST_CAP));
+            }
+            out.push('\n');
+        };
 
         let mut body = String::new();
         let mut symbols = 0;
@@ -295,7 +307,7 @@ impl<'a> Ctx<'a> {
             }
             body.push('\n');
             if level >= 1 {
-                list("deps:", deps.get(b.id.as_str()), "", &mut body);
+                list("deps:", deps.get(b.id.as_str()), INVERSE_CAP, "", &mut body);
             }
             for i in &b.items {
                 symbols += 1;
@@ -319,15 +331,15 @@ impl<'a> Ctx<'a> {
                 }
                 let inner = format!("{indent}  ");
                 let id = i.id.as_str();
-                list(">", calls.get(id), &inner, &mut body);
-                list("<", callers.get(id), &inner, &mut body);
+                list(">", calls.get(id), LIST_CAP, &inner, &mut body);
+                list("<", callers.get(id), INVERSE_CAP, &inner, &mut body);
                 if level >= 2 {
-                    list("uses:", uses.get(id), &inner, &mut body);
-                    list("impl:", impls.get(id), &inner, &mut body);
+                    list("uses:", uses.get(id), LIST_CAP, &inner, &mut body);
+                    list("impl:", impls.get(id), LIST_CAP, &inner, &mut body);
                 }
                 if level >= 3 {
-                    list("types:", types.get(id), &inner, &mut body);
-                    list("fields:", fields.get(id), &inner, &mut body);
+                    list("types:", types.get(id), LIST_CAP, &inner, &mut body);
+                    list("fields:", fields.get(id), LIST_CAP, &inner, &mut body);
                 }
             }
         }
