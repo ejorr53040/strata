@@ -45,7 +45,10 @@ afterthought:**
    next bug. `-v` lists every missed call and definition. A miss strata gets wrong is a
    strata bug: add a failing fixture test under `crates/strata-cli/tests/` first, then fix.
    A miss that is the scorer's fault gets fixed in `metrics.py` and noted in the commit.
-4. Report each run's deltas (recall, false external, unresolved, review findings) to the user.
+4. Check `map.qa` and `map.tokens` too: the map must stay answerable (QA where/fields/callers) and
+   within budget. Dogfood on a big real crate (e.g. tokio in ~/.cargo/registry) now and then:
+   crashes and blow-ups show up there first.
+5. Report each run's deltas (recall, false external, unresolved, review findings) to the user.
 
 A second series scores strata on an external repo (cirrocumulus, `~/cs/cirrocumulus`; override
 with `CIRRO_PATH`): `python3 scripts/metrics.py run --corpus cirrocumulus --label "..."`

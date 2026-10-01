@@ -12,6 +12,13 @@ strata guide                          # print this document
 
 ## Workflow
 
+0. `strata call map '{"budget_tokens":200000}'` (or `strata map --budget N`) returns the
+   whole repo as text: modules, definitions with signatures and doc lines, and under each
+   what it calls (`>`), what calls it (`<`), plus `uses`, `impl`, `types`, `fields` at higher
+   levels. Reading it replaces opening most files; a budget picks the richest level that
+   fits (tokio, 140k lines, fits in 1M tokens at every level). Use the tools below for
+   exact questions on a single symbol.
+
 1. `strata call overview '{}'` first. Read the edge-state counts: a graph that is mostly
    `unresolved` cannot answer impact questions; say so instead of guessing.
 2. `strata call symbols '{"query":"walk"}'` to find the exact qualified id
