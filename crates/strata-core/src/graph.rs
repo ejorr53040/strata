@@ -126,6 +126,9 @@ struct Index<'a> {
     modules: BTreeMap<String, (&'static dyn Language, FileFacts, String)>,
     /// fully qualified id -> definition
     symbols: BTreeMap<String, Sym>,
+    /// Ids of struct/variant fields. Kept apart from `symbols` because a field and a method
+    /// may share a name (`self.level` and `self.level()`).
+    fields: std::collections::BTreeSet<String>,
     /// class id -> indexed base class ids
     bases: BTreeMap<String, Vec<String>>,
     /// class id -> indexed direct subclass ids
@@ -164,14 +167,22 @@ pub fn build(sources: &[Source], unindexed_modules: &[String]) -> Graph {
         }
     }
     let mut symbols = BTreeMap::new();
+    let mut fields = std::collections::BTreeSet::new();
     for (module, (_, facts, _)) in &modules {
         for d in &facts.defs {
-            symbols.insert(qualify(module, &d.qualname), Sym { kind: d.kind });
+            let id = qualify(module, &d.qualname);
+            if d.kind == DefKind::Field {
+                fields.insert(id.clone());
+                symbols.entry(id).or_insert(Sym { kind: d.kind });
+            } else {
+                symbols.insert(id, Sym { kind: d.kind });
+            }
         }
     }
     let mut index = Index {
         modules,
         symbols,
+        fields,
         bases: BTreeMap::new(),
         subclasses: BTreeMap::new(),
         unindexed: unindexed_modules,
@@ -497,6 +508,24 @@ impl Index<'_> {
         }
     }
 
+    /// An item defined inside an enclosing function (`static N` in `fn f`), found by name.
+    fn local_def(&self, module: &str, enclosing: &str, name: &str) -> Option<String> {
+        let mut scope = enclosing;
+        loop {
+            let is_fn = self
+                .symbols
+                .get(&qualify(module, scope))
+                .is_some_and(|s| matches!(s.kind, DefKind::Function | DefKind::Method));
+            if is_fn {
+                let id = qualify(module, &format!("{scope}.{name}"));
+                if self.symbols.contains_key(&id) {
+                    return Some(id);
+                }
+            }
+            scope = scope.rsplit_once('.')?.0;
+        }
+    }
+
     /// The type an item's qualname sits in or is: `Circle.new` and `Circle` both give `Circle`.
     fn class_of(&self, module: &str, enclosing: &str) -> Option<String> {
         let own = qualify(module, enclosing);
@@ -524,7 +553,10 @@ impl Index<'_> {
             EdgeKind::Import => EdgeKind::Import,
             k => targets.first().map_or(k, |t| self.refine(k, t)),
         };
-        if r.local && !matches!(kind, EdgeKind::Variant) && !self.is_const_target(&targets) {
+        if r.local
+            && !matches!(kind, EdgeKind::Variant | EdgeKind::Type)
+            && !self.is_const_target(&targets)
+        {
             return None;
         }
         Some(Edge {
@@ -550,7 +582,11 @@ impl Index<'_> {
 
     /// What a reference really is, from what it points at.
     fn refine(&self, initial: EdgeKind, target: &str) -> EdgeKind {
+        if initial == EdgeKind::Field && self.fields.contains(target) {
+            return EdgeKind::Field;
+        }
         match self.symbols.get(target).map(|s| s.kind) {
+            Some(DefKind::Module) => EdgeKind::Path,
             Some(k) if k.is_type() || k == DefKind::TypeAlias => EdgeKind::Type,
             Some(DefKind::Variant) => EdgeKind::Variant,
             Some(DefKind::Field) => EdgeKind::Field,
@@ -571,6 +607,9 @@ impl Index<'_> {
             return Some(Outcome::Resolved(vec![main]));
         }
         let segs: Vec<&str> = expr.split('.').collect();
+        if let Some(id) = enclosing.and_then(|e| self.local_def(module, e, segs[0])) {
+            return Some(self.resolve_from(lang, Lookup::Def(id), &segs[1..], true));
+        }
         if matches!(segs[0], "self" | "Self") {
             let class = enclosing.and_then(|e| self.class_of(module, e))?;
             return Some(match segs.as_slice() {
@@ -620,10 +659,10 @@ impl Index<'_> {
     fn by_member_name(&self, lang: &dyn Language, name: &str) -> Outcome {
         let suffix = format!(".{name}");
         let targets: Vec<String> = self
-            .symbols
+            .fields
             .iter()
-            .filter(|(id, s)| s.kind == DefKind::Field && id.ends_with(&suffix))
-            .map(|(id, _)| id.clone())
+            .filter(|id| id.ends_with(&suffix))
+            .cloned()
             .collect();
         if !targets.is_empty() {
             Outcome::Candidate(targets)

@@ -449,6 +449,12 @@ impl State<'_> {
         }
         let mut trees = Vec::new();
         token_trees(node, &mut trees);
+        for tt in &trees {
+            // Paths and calls anywhere in the arguments (`range(i64::from(a::MAX))`).
+            if tt.parent().is_some_and(|p| p.kind() != "token_tree") {
+                self.scan_tokens(*tt);
+            }
+        }
         for tt in trees {
             let mut c = tt.walk();
             let kids: Vec<Node> = tt.children(&mut c).collect();

@@ -245,6 +245,7 @@ fn type_references_in_constructors_turbofish_and_macros() {
             "resolved[type] app.main.types_in_odd_places -> app.main.Tup app/src/main.rs:86",
             "resolved[type] app.main.types_in_odd_places -> app.main.Tup app/src/main.rs:87",
             "resolved[type] app.main.types_in_odd_places -> app.main.Tup app/src/main.rs:89",
+            "resolved[type] app.main.tuple_pat -> app.main.Tup app/src/main.rs:135",
         ]
     );
 }
@@ -261,7 +262,10 @@ fn consts_and_statics_are_symbols_and_their_uses_are_value_references() {
     assert!(syms.contains(&"static NAME app/src/main.rs:95".to_string()));
     assert_eq!(
         refs("app.main.LIMIT"),
-        vec!["resolved[value] app.main.consts_and_values -> app.main.LIMIT app/src/main.rs:107"]
+        vec![
+            "resolved[value] app.main.consts_and_values -> app.main.LIMIT app/src/main.rs:107",
+            "resolved[value] app.main.Args2 -> app.main.LIMIT app/src/main.rs:130",
+        ]
     );
     // A method call on a static is a call on a value of unknown type, not an unresolved name.
     assert!(run(&["callees", "app.main.consts_and_values"])
@@ -345,6 +349,7 @@ fn modules_are_symbols_and_path_segments_and_uses_are_edges_to_them() {
             "resolved[path] shapes.<module> -> shapes.util shapes/src/lib.rs:1",
             "resolved[path] shapes.Circle.area -> shapes.util shapes/src/lib.rs:29",
             "resolved[import] shapes.<module> -> shapes.util shapes/src/lib.rs:50",
+            "resolved[path] shapes.via_inline -> shapes.util shapes/src/lib.rs:115",
             "resolved[import] shapes.util.inline_tests -> shapes.util shapes/src/util.rs:17",
         ]
     );
@@ -383,4 +388,54 @@ fn pub_crate_visibility_names_the_crate_root() {
         ),
         "{lines:#?}"
     );
+}
+
+// Depth round 5c: namespaces and scopes found by running on cirrocumulus.
+
+#[test]
+fn a_field_and_a_method_of_the_same_name_are_both_referenced() {
+    let lines = refs("shapes.Gauge.level");
+    assert!(
+        lines.contains(
+            &"resolved[field] shapes.Gauge.level -> shapes.Gauge.level shapes/src/lib.rs:106"
+                .to_string()
+        ),
+        "{lines:#?}"
+    );
+    assert!(
+        lines.contains(
+            &"candidate shapes.read -> shapes.Gauge.level shapes/src/lib.rs:111".to_string()
+        ),
+        "{lines:#?}"
+    );
+}
+
+#[test]
+fn items_defined_inside_a_function_are_found_from_it() {
+    assert_eq!(
+        refs("app.main.local_items.COUNTER"),
+        vec!["resolved[value] app.main.local_items -> app.main.local_items.COUNTER app/src/main.rs:126"]
+    );
+}
+
+#[test]
+fn inline_modules_are_path_references_not_values() {
+    let lines = refs("shapes.util.inline_tests");
+    assert!(
+        lines.contains(
+            &"resolved[path] shapes.via_inline -> shapes.util.inline_tests shapes/src/lib.rs:115"
+                .to_string()
+        ),
+        "{lines:#?}"
+    );
+}
+
+#[test]
+fn attribute_arguments_may_hold_arbitrary_paths_and_tuple_struct_patterns_are_types() {
+    assert!(refs("app.main.LIMIT").contains(
+        &"resolved[value] app.main.Args2 -> app.main.LIMIT app/src/main.rs:130".to_string()
+    ));
+    assert!(refs("app.main.Tup").contains(
+        &"resolved[type] app.main.tuple_pat -> app.main.Tup app/src/main.rs:135".to_string()
+    ));
 }

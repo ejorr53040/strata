@@ -96,3 +96,21 @@ pub fn kind_match(k: Kind) -> i32 {
         Kind::Round => 1,
     }
 }
+
+pub struct Gauge {
+    level: f64,
+}
+
+impl Gauge {
+    pub fn level(&self) -> f64 {
+        self.level
+    }
+}
+
+pub fn read(g: &Gauge) -> f64 {
+    g.level()
+}
+
+pub fn via_inline() {
+    util::inline_tests::t();
+}

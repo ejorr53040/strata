@@ -120,3 +120,17 @@ fn bare_variant(k: shapes::Kind) -> i32 {
         Round => 1,
     }
 }
+
+fn local_items() -> i32 {
+    static COUNTER: i32 = 1;
+    COUNTER
+}
+
+struct Args2 {
+    #[arg(default_value_t = i64::from(LIMIT))]
+    n: i64,
+}
+
+fn tuple_pat() {
+    let _f = |Tup(x)| x;
+}

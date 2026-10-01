@@ -279,7 +279,7 @@ def depth_scores(root, symbols, edges, defs, refs):
             cat = "import"
         elif cat == "fn":
             after = text[endcol:]
-            called = re.match(r"\s*(::<[^()]*>)?\s*\(", after) or (
+            called = re.match(r"\s*(::<.*?>)?\s*\(", after) or (
                 not after.strip()
                 and line1 < len(lines)
                 and lines[line1].lstrip().startswith("(")
