@@ -43,6 +43,7 @@ number and the chart below; see [Metrics](CLAUDE.md#metrics) for when to run it.
 | 8 | `b319c9b` | depth 8: receiver typing | 100.0% | 100.0% | 100.0% | 0 | 2 | – |
 | 9 | `b39716f` | depth 9: strata map | 100.0% | 100.0% | 99.9% | 1 | 2 | – |
 | 10 | `fe13479` | JS plugin + shared globals + external-rooted chains | 100.0% | 100.0% | 99.9% | 1 | 2 | – |
+| 11 | `35ccb60` | HTML/CSS markup index; walker indexes html/css | 100.0% | 100.0% | 99.9% | 1 | 2 | – |
 
 
 <!-- metrics:end -->
@@ -76,8 +77,9 @@ The same scoring on a repository outside strata. Run 1 is strata's first look at
 | 17 | `b319c9b` | `a8cf4eb` | depth 8c: path-vs-local fixes | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | – | – |
 | 18 | `b39716f` | `a8cf4eb` | depth 9: strata map (all levels fit) | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
 | 19 | `fe13479` | `a8cf4eb` | JS plugin + shared globals + external-rooted chains | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
+| 20 | `35ccb60` | `a8cf4eb` | HTML/CSS markup index; walker indexes html/css | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
 
-Latest run (`fe13479`) by connection type. *seen*: strata recorded a connection at that spot; *right*: and its targets include the correct definition.
+Latest run (`35ccb60`) by connection type. *seen*: strata recorded a connection at that spot; *right*: and its targets include the correct definition.
 
 | Connection | Total | Seen | Right | Exact |
 | --- | ---: | ---: | ---: | ---: |
