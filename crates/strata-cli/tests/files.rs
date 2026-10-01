@@ -40,7 +40,7 @@ fn repo() -> tempfile::TempDir {
     write(r, "target/x.py", "def built(): pass\n");
     write(r, "build/y.py", "def built2(): pass\n");
     write(r, ".venv/lib/z.py", "def venv_fn(): pass\n");
-    write(r, "src/main.rs", "fn main() {}\n");
+    write(r, "src/main.go", "package main\n");
     write(r, ".git/info/exclude", "excluded.py\n");
     write(r, "excluded.py", "def excl(): pass\n");
     fs::write(r.join("src/bad.py"), [0xff, 0xfe, 0x00, b'd']).unwrap();
@@ -60,7 +60,7 @@ fn files_unindexed_lists_each_skipped_file_with_its_reason() {
         "unindexed target/x.py vendored",
         "unindexed build/y.py vendored",
         "unindexed .venv/lib/z.py vendored",
-        "unindexed src/main.rs unsupported-language",
+        "unindexed src/main.go unsupported-language",
         "unindexed src/bad.py parse-failure",
     ] {
         assert!(lines.contains(&want), "missing `{want}` in:\n{text}");

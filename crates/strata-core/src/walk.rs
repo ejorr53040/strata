@@ -10,7 +10,7 @@ const VENDORED_DIRS: &[&str] = &["target", "node_modules", "build"];
 
 /// Extensions the walker recognises as source code but has no language plugin for yet.
 const UNSUPPORTED_SOURCE: &[&str] = &[
-    "rs", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "js", "mjs", "ts", "tsx", "jsx", "go", "java",
+    "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "js", "mjs", "ts", "tsx", "jsx", "go", "java",
     "html", "css",
 ];
 
@@ -68,7 +68,7 @@ pub struct Skipped {
 
 #[derive(Debug, Clone, Default)]
 pub struct Walk {
-    /// Python files to parse, sorted by path.
+    /// Files with a language plugin, to parse, sorted by path.
     pub indexed: Vec<Source>,
     /// Source files that were not indexed, sorted by path.
     pub unindexed: Vec<Skipped>,
@@ -92,8 +92,8 @@ pub fn walk(root: &Path, opts: &WalkOptions) -> Walk {
     let mut out = Walk::default();
     for rel in all {
         let ext = rel.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let is_py = ext == "py";
-        if !is_py && !UNSUPPORTED_SOURCE.contains(&ext) {
+        let supported = crate::lang::for_path(&rel.to_string_lossy()).is_some();
+        if !supported && !UNSUPPORTED_SOURCE.contains(&ext) {
             continue;
         }
         let rel_s = rel.to_string_lossy().replace('\\', "/");
@@ -110,7 +110,7 @@ pub fn walk(root: &Path, opts: &WalkOptions) -> Walk {
         };
         let reason = match reason {
             Some(r) => Some(r),
-            None if !is_py => Some(Reason::UnsupportedLanguage),
+            None if !supported => Some(Reason::UnsupportedLanguage),
             None => None,
         };
         if let Some(reason) = reason {

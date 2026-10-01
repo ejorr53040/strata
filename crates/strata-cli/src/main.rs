@@ -170,11 +170,17 @@ fn run() -> Result<(), String> {
             }
         }
         Cmd::Callers { symbol, json } => {
-            let graph = strata_core::graph::build(&strata_core::graph::load(&root), &[]);
+            let graph = strata_core::graph::build(
+                &strata_core::graph::load_with(&root, &walk_options(&root, &cli.set)?),
+                &[],
+            );
             print_edges(graph.callers(&symbol), json);
         }
         Cmd::Callees { symbol, json } => {
-            let graph = strata_core::graph::build(&strata_core::graph::load(&root), &[]);
+            let graph = strata_core::graph::build(
+                &strata_core::graph::load_with(&root, &walk_options(&root, &cli.set)?),
+                &[],
+            );
             print_edges(graph.callees(&symbol), json);
         }
         Cmd::Smoke { prompt, model } => smoke(&root, &cli.set, &prompt, model)?,

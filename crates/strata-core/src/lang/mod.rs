@@ -2,12 +2,37 @@
 //! the resolver in [`crate::graph`] works only on those facts.
 
 pub mod python;
+pub mod rust;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DefKind {
     Function,
     Class,
+    Struct,
+    Enum,
+    Trait,
     Method,
+}
+
+impl DefKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            DefKind::Function => "function",
+            DefKind::Class => "class",
+            DefKind::Struct => "struct",
+            DefKind::Enum => "enum",
+            DefKind::Trait => "trait",
+            DefKind::Method => "method",
+        }
+    }
+
+    /// Kinds that own methods and can be inherited from or implemented.
+    pub fn is_type(self) -> bool {
+        matches!(
+            self,
+            DefKind::Class | DefKind::Struct | DefKind::Enum | DefKind::Trait
+        )
+    }
 }
 
 /// A definition. `qualname` is relative to its module, e.g. `Circle.radius`.
@@ -56,10 +81,11 @@ pub trait Language: Sync {
 }
 
 static PYTHON: python::Python = python::Python;
+static RUST: rust::Rust = rust::Rust;
 
 pub fn for_path(rel_path: &str) -> Option<&'static dyn Language> {
     let ext = rel_path.rsplit_once('.')?.1;
-    [&PYTHON as &dyn Language]
+    [&PYTHON as &dyn Language, &RUST]
         .into_iter()
         .find(|l| l.extensions().contains(&ext))
 }

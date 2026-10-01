@@ -244,7 +244,7 @@ impl Index<'_> {
     fn link_classes(&mut self) {
         let mut bases: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for (module, (_, facts, _)) in &self.modules {
-            for d in facts.defs.iter().filter(|d| d.kind == DefKind::Class) {
+            for d in facts.defs.iter().filter(|d| d.kind.is_type()) {
                 let resolved: Vec<String> = d
                     .bases
                     .iter()
@@ -267,9 +267,7 @@ impl Index<'_> {
     }
 
     fn is_class(&self, id: &str) -> bool {
-        self.symbols
-            .get(id)
-            .is_some_and(|s| s.kind == DefKind::Class)
+        self.symbols.get(id).is_some_and(|s| s.kind.is_type())
     }
 
     /// The method `name` as seen from `class`: its own, else the nearest base's.
@@ -364,6 +362,13 @@ impl Index<'_> {
             return Outcome::Unresolved(format!(
                 "`{callee}` is not defined in module scope or imports"
             ));
+        }
+        // A fully written module path (`crate::util::f` is rewritten to `app.util.f`).
+        for k in (1..segs.len()).rev() {
+            let m = segs[..k].join(".");
+            if self.modules.contains_key(&m) {
+                return self.resolve_in_module(&m, &segs[k..]);
+            }
         }
         // Receiver type is unknown: every indexed method with that name is a possible target.
         let name = segs[segs.len() - 1];
@@ -463,31 +468,19 @@ impl Graph {
 
 /// Read every source file of a supported language under `root`.
 pub fn load(root: &Path) -> Vec<Source> {
-    let mut out = Vec::new();
-    collect(root, root, &mut out);
-    out.sort_by(|a, b| a.path.cmp(&b.path));
-    out
+    load_with(root, &crate::walk::WalkOptions::default())
 }
 
-fn collect(root: &Path, dir: &Path, out: &mut Vec<Source>) {
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for e in rd.flatten() {
-        let p = e.path();
-        let rel = p
-            .strip_prefix(root)
-            .unwrap_or(&p)
-            .to_string_lossy()
-            .replace('\\', "/");
-        if p.is_dir() {
-            collect(root, &p, out);
-        } else if lang::for_path(&rel).is_some() {
-            if let Ok(text) = std::fs::read_to_string(&p) {
-                out.push(Source { path: rel, text });
-            }
-        }
-    }
+/// Read every file the walker indexes (honouring ignore rules and `index.include`).
+pub fn load_with(root: &Path, opts: &crate::walk::WalkOptions) -> Vec<Source> {
+    crate::walk::walk(root, opts)
+        .indexed
+        .into_iter()
+        .map(|f| Source {
+            path: f.rel,
+            text: f.text,
+        })
+        .collect()
 }
 
 #[cfg(test)]
