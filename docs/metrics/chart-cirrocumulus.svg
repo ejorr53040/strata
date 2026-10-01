@@ -11,7 +11,7 @@
 .dot{stroke:#1a1a19} .bar{fill:#3987e5}}
 </style>
 <rect class="bg" width="760" height="290"/>
-<text class="h" x="64" y="26">Recall vs rust-analyzer (%, higher is better)</text>
+<text class="h" x="64" y="26">cirrocumulus (external corpus): recall vs rust-analyzer (%, higher is better)</text>
 <line class="ln s1" x1="64" x2="82" y1="46" y2="46"/>
 <text x="88" y="50">Symbols</text>
 <line class="ln s2" x1="166" x2="184" y1="46" y2="46"/>
@@ -20,12 +20,12 @@
 <text x="316" y="50">Targets</text>
 <line class="grid" x1="64" x2="640" y1="230.0" y2="230.0"/>
 <text x="56" y="234.0" text-anchor="end">90</text>
-<line class="grid" x1="64" x2="640" y1="198.0" y2="198.0"/>
-<text x="56" y="202.0" text-anchor="end">92</text>
+<line class="grid" x1="64" x2="640" y1="190.0" y2="190.0"/>
+<text x="56" y="194.0" text-anchor="end">92.5</text>
 <line class="grid" x1="64" x2="640" y1="150.0" y2="150.0"/>
 <text x="56" y="154.0" text-anchor="end">95</text>
-<line class="grid" x1="64" x2="640" y1="118.0" y2="118.0"/>
-<text x="56" y="122.0" text-anchor="end">97</text>
+<line class="grid" x1="64" x2="640" y1="110.0" y2="110.0"/>
+<text x="56" y="114.0" text-anchor="end">97.5</text>
 <line class="grid" x1="64" x2="640" y1="70.0" y2="70.0"/>
 <text x="56" y="74.0" text-anchor="end">100</text>
 <polyline class="ln s1" points="64.0,82.5 640.0,70.0"/>

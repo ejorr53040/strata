@@ -11,7 +11,7 @@
 .dot{stroke:#1a1a19} .bar{fill:#3987e5}}
 </style>
 <rect class="bg" width="760" height="500"/>
-<text class="h" x="64" y="26">Recall vs rust-analyzer (%, higher is better)</text>
+<text class="h" x="64" y="26">strata (self-analysis): recall vs rust-analyzer (%, higher is better)</text>
 <line class="ln s1" x1="64" x2="82" y1="46" y2="46"/>
 <text x="88" y="50">Symbols</text>
 <line class="ln s2" x1="166" x2="184" y1="46" y2="46"/>

@@ -432,7 +432,7 @@ def chart(runs, title, review_panel=True):
         ".dot{stroke:#1a1a19} .bar{fill:#3987e5}}",
         "</style>",
         f'<rect class="bg" width="{W}" height="{H}"/>',
-        f'<text class="h" x="{x0}" y="26">Recall vs rust-analyzer (%, higher is better)</text>',
+        f'<text class="h" x="{x0}" y="26">{title}: recall vs rust-analyzer (%, higher is better)</text>',
     ]
     # legend
     lx = x0
@@ -440,10 +440,10 @@ def chart(runs, title, review_panel=True):
         out.append(f'<line class="ln {cls}" x1="{lx}" x2="{lx + 18}" y1="46" y2="46"/>')
         out.append(f'<text x="{lx + 24}" y="50">{name}</text>')
         lx += 24 + 8 * len(name) + 22
-    ticks = sorted({lo, 100, *(lo + (100 - lo) * k // 4 for k in range(5))})
+    ticks = [lo + (100 - lo) * k / 4 for k in range(5)]
     for t in ticks:
         out.append(f'<line class="grid" x1="{x0}" x2="{x1}" y1="{y1(t):.1f}" y2="{y1(t):.1f}"/>')
-        out.append(f'<text x="{x0 - 8}" y="{y1(t) + 4:.1f}" text-anchor="end">{t}</text>')
+        out.append(f'<text x="{x0 - 8}" y="{y1(t) + 4:.1f}" text-anchor="end">{t:g}</text>')
     labels = []
     for key, name, cls in SERIES:
         pts = [(xs[i], y1(r["recall"][key]), r["recall"][key]) for i, r in enumerate(runs)
