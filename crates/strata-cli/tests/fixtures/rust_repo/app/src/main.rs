@@ -194,3 +194,7 @@ fn typed(h: Holder, g2: shapes::Gauge) {
     let _b = c.area();
     let _d = g2.level();
 }
+
+fn extra_user(c: shapes::Circle) -> f64 {
+    c.extra()
+}

@@ -60,6 +60,9 @@ pub struct Def {
     /// Declared type as a dotted path, generics and references stripped: a field's type, a
     /// function's return type, a const's type. `Self` is kept as written.
     pub ty: Option<String>,
+    /// For items of an `impl Type { .. }` block: the type path as written, so an impl outside
+    /// the type's own module can still be found through the type.
+    pub owner: Option<String>,
 }
 
 /// A name bound by an import. `module` is always absolute (plugins resolve relative imports).

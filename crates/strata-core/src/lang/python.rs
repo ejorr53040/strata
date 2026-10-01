@@ -162,6 +162,7 @@ impl State<'_> {
             line: node.start_position().row + 1,
             bases,
             ty: None,
+            owner: None,
         });
         self.scope
             .push((qualname, if is_class { Scope::Class } else { Scope::Func }));

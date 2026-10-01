@@ -207,6 +207,7 @@ fn type_references_are_edges_with_their_enclosing_item_as_the_source() {
             "resolved[type] app.main.shadow -> shapes.Circle app/src/main.rs:14",
             "resolved[type] app.main.field_on_unknown -> shapes.Circle app/src/main.rs:112",
             "resolved[type] app.main.typed -> shapes.Circle app/src/main.rs:193",
+            "resolved[type] app.main.extra_user -> shapes.Circle app/src/main.rs:198",
             "resolved[type] shapes.Circle -> shapes.Circle shapes/src/lib.rs:18",
             "resolved[type] shapes.Circle.new -> shapes.Circle shapes/src/lib.rs:19",
             "resolved[type] shapes.Circle.new -> shapes.Circle shapes/src/lib.rs:20",
@@ -217,6 +218,7 @@ fn type_references_are_edges_with_their_enclosing_item_as_the_source() {
             "resolved[import] shapes.util.<module> -> shapes.Circle shapes/src/util.rs:1",
             "resolved[type] shapes.util.make -> shapes.Circle shapes/src/util.rs:7",
             "resolved[type] shapes.util.make -> shapes.Circle shapes/src/util.rs:8",
+            "resolved[type] shapes.util.shapes.Circle -> shapes.Circle shapes/src/util.rs:28",
         ]
     );
 }
@@ -557,5 +559,13 @@ fn receiver_types_from_params_fields_and_constructors_make_calls_exact() {
             "resolved app.main.typed -> shapes.Circle.area app/src/main.rs:194",
             "resolved app.main.typed -> shapes.Gauge.level app/src/main.rs:195",
         ]
+    );
+}
+
+#[test]
+fn methods_of_an_impl_in_another_module_belong_to_the_type() {
+    assert_eq!(
+        run(&["callees", "app.main.extra_user"]),
+        vec!["resolved app.main.extra_user -> shapes.Circle.extra app/src/main.rs:199"]
     );
 }

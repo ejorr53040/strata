@@ -156,6 +156,8 @@ struct State<'a> {
     generics: Vec<HashSet<String>>,
     /// The trait of the `impl Trait for Type` block being walked, as a dotted path.
     impl_trait: Option<String>,
+    /// The type of the `impl` block being walked, as a dotted path.
+    impl_type: Option<String>,
     /// `mod x;` declared in this file: `use x::f` means `use self::x::f`.
     declared_mods: HashSet<String>,
     facts: &'a mut FileFacts,
@@ -220,6 +222,7 @@ fn parse_into(
         locals: outer_locals.to_vec(),
         generics: Vec::new(),
         impl_trait: None,
+        impl_type: None,
         declared_mods: HashSet::new(),
         facts,
         impls,
@@ -398,6 +401,7 @@ impl State<'_> {
                 ty: node
                     .child_by_field_name("type")
                     .and_then(|t| self.type_hint(t)),
+                owner: None,
             });
         }
         self.walk(node);
@@ -414,6 +418,7 @@ impl State<'_> {
             line: self.line(name),
             bases: Vec::new(),
             ty: None,
+            owner: None,
         });
         self.scope.push((qualname, Scope::Item));
         self.walk(node);
@@ -799,6 +804,11 @@ impl State<'_> {
             line: self.line(node),
             bases: Vec::new(),
             ty,
+            owner: if matches!(self.scope.last(), Some((_, Scope::Type))) {
+                self.impl_type.clone()
+            } else {
+                None
+            },
         });
     }
 
@@ -817,6 +827,11 @@ impl State<'_> {
             line: self.line(node),
             bases: Vec::new(),
             ty: ret,
+            owner: if kind == DefKind::Method {
+                self.impl_type.clone()
+            } else {
+                None
+            },
         });
         if let (Some(tr), DefKind::Method) = (&self.impl_trait, kind) {
             // This method implements the trait's method of the same name.
@@ -899,8 +914,10 @@ impl State<'_> {
             trait_path = Some(tr);
         }
         let outer = std::mem::replace(&mut self.impl_trait, trait_path);
+        let outer_ty = self.impl_type.replace(ty_name);
         self.enter_item(node, qual, Scope::Type);
         self.impl_trait = outer;
+        self.impl_type = outer_ty;
     }
 
     /// `Foo<T>` -> `Foo`, `a::b::Foo` -> `a.b.Foo`.
@@ -936,6 +953,7 @@ impl State<'_> {
                     line: name_line,
                     bases: Vec::new(),
                     ty: None,
+                    owner: None,
                 });
                 self.scope.push((q, Scope::Mod));
                 self.walk(body);
@@ -952,6 +970,7 @@ impl State<'_> {
                             line: name_line,
                             bases: Vec::new(),
                             ty: None,
+                            owner: None,
                         });
                         module_of(&target)
                     }
@@ -1285,6 +1304,7 @@ impl State<'_> {
             line: self.line(node),
             bases: Vec::new(),
             ty: None,
+            owner: None,
         });
         // The remaining arguments may name types (`ioctl_read!(name, 0x54, 1, Config)`).
         self.scan_tokens(tt);

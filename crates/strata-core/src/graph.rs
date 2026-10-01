@@ -208,6 +208,7 @@ pub fn build(sources: &[Source], unindexed_modules: &[String]) -> Graph {
         subclasses: BTreeMap::new(),
         unindexed: unindexed_modules,
     };
+    index.register_foreign_impls();
     index.link_classes();
     let mut edges = Vec::new();
     for (module, (_, facts, path)) in &index.modules {
@@ -579,6 +580,38 @@ impl Index<'_> {
             ))
         } else {
             Outcome::Candidate(targets)
+        }
+    }
+
+    /// `impl Type { fn m }` in a module other than `Type`'s own: also register `m` under the
+    /// type's id, so a call on a `Type` finds it.
+    fn register_foreign_impls(&mut self) {
+        let mut aliases = Vec::new();
+        for (module, (_, facts, _)) in &self.modules {
+            for d in &facts.defs {
+                let Some(owner) = &d.owner else { continue };
+                let at_home = self
+                    .symbols
+                    .get(&qualify(module, owner))
+                    .is_some_and(|s| s.kind.is_type());
+                if at_home {
+                    continue;
+                }
+                let Some(class) = self.type_class(module, None, owner) else {
+                    continue;
+                };
+                let name = d.qualname.rsplit('.').next().unwrap_or(&d.qualname);
+                let sym = Sym {
+                    kind: d.kind,
+                    ty: d.ty.clone(),
+                    module: module.clone(),
+                    qual: d.qualname.clone(),
+                };
+                aliases.push((format!("{class}.{name}"), sym));
+            }
+        }
+        for (id, sym) in aliases {
+            self.symbols.entry(id).or_insert(sym);
         }
     }
 

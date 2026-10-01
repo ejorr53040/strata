@@ -24,3 +24,9 @@ mod inline_tests {
 }
 
 pub(crate) mod vis_mod {}
+
+impl crate::Circle {
+    pub fn extra(&self) -> f64 {
+        1.0
+    }
+}
