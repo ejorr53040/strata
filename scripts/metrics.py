@@ -321,6 +321,7 @@ def depth_scores(root, symbols, edges, defs, refs):
     ref_tot = {c: 0 for c in REF_CATS}
     seen_n = {c: 0 for c in REF_CATS}
     right_n = {c: 0 for c in REF_CATS}
+    exact_n = {c: 0 for c in REF_CATS}
     missed = []
     dedupe = set()
     ws = {s for s in defs if category(s)}
@@ -370,12 +371,17 @@ def depth_scores(root, symbols, edges, defs, refs):
             seen_n[cat] += 1
         else:
             missed.append((cat, rel, line1, name, "not seen"))
-        if any(
-            e["state"] in ("resolved", "candidate")
-            and (keyword or any(target_matches(t, desc, name) for t in e["targets"]))
+        right = [
+            e
             for e in near
-        ):
+            if e["state"] in ("resolved", "candidate")
+            and (keyword or any(target_matches(t, desc, name) for t in e["targets"]))
+        ]
+        if right:
             right_n[cat] += 1
+            # exact: one target, and it is the right one (a candidate set is not)
+            if any(e["state"] == "resolved" and len(e["targets"]) <= 1 for e in right):
+                exact_n[cat] += 1
         elif near:
             missed.append((cat, rel, line1, name, "wrong target: " + near[0]["state"]))
 
@@ -420,6 +426,10 @@ def depth_scores(root, symbols, edges, defs, refs):
             "defs": pct(sum(def_hit.values()), sum(def_tot.values())),
             "refs_seen": pct(sum(seen_n.values()), tot),
             "refs_right": pct(sum(right_n.values()), tot),
+            "refs_exact": pct(
+                sum(exact_n[c] if c not in ("impl_block", "impl_method") else right_n[c] for c in REF_CATS),
+                tot,
+            ),
         },
         "_missed": missed,
         "_missed_defs": missed_defs,
@@ -684,7 +694,7 @@ def table(runs, external=False):
 def table_external(runs):
     head = (
         "| Run | strata | corpus | What changed | Definitions | References seen | References right "
-        "| Calls right | False external | Unresolved | Map tokens |\n"
+        "| References exact | False external | Unresolved | Map tokens |\n"
         "| ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n"
     )
     rows = []
@@ -694,7 +704,7 @@ def table_external(runs):
         rows.append(
             f"| {i} | `{r['rev']}` | `{r.get('corpus_rev', '')}` | {r['label']} "
             f"| {fmt(sm.get('defs'), True)} | {fmt(sm.get('refs_seen'), True)} "
-            f"| {fmt(sm.get('refs_right'), True)} | {fmt(r['recall']['target'], True)} "
+            f"| {fmt(sm.get('refs_right'), True)} | {fmt(sm.get('refs_exact'), True)} "
             f"| {r['counts']['false_external']} | {r['edges'].get('unresolved', 0)} "
             f"| {'–' if not mp else format(mp['tokens'], ',')} |"
         )
@@ -726,11 +736,14 @@ def depth_table(run):
     out = (
         f"Latest run (`{run['rev']}`) by connection type. *seen*: strata recorded a connection "
         "at that spot; *right*: and its targets include the correct definition.\n\n"
-        "| Connection | Total | Seen | Right |\n| --- | ---: | ---: | ---: |\n"
+        "| Connection | Total | Seen | Right | Exact |\n| --- | ---: | ---: | ---: | ---: |\n"
     )
     pct = lambda a, b: "–" if not b else f"{100 * a / b:.1f}%"
     for c, v in d["refs"].items():
-        out += f"| reference: {c} | {v['total']} | {pct(v['seen'], v['total'])} | {pct(v['right'], v['total'])} |\n"
+        out += (
+            f"| reference: {c} | {v['total']} | {pct(v['seen'], v['total'])} "
+            f"| {pct(v['right'], v['total'])} | {pct(v.get('exact', 0), v['total'])} |\n"
+        )
     for c, v in d["defs"].items():
         out += (
             f"| definition: {c} | {v['total']} | {pct(v['found'], v['total'])} | – |\n"
@@ -752,7 +765,7 @@ DEPTH_SERIES = [
 
 def series_values(run, key):
     """Recall value of one chart series for a run (depth summary or legacy)."""
-    if key in ("defs", "refs_seen", "refs_right"):
+    if key in ("defs", "refs_seen", "refs_right", "refs_exact"):
         return ((run.get("depth") or {}).get("summary") or {}).get(key)
     return run["recall"][key]
 
@@ -945,8 +958,7 @@ def main():
     )
     r.add_argument(
         "--corpus-rev",
-        default="HEAD",
-        help="commit of an external corpus (default HEAD)",
+        help="commit of an external corpus (default: its pinned commit)",
     )
     r.add_argument(
         "--label", help="short note on what changed (default: commit subject)"

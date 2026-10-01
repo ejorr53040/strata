@@ -2,7 +2,7 @@
 //! module `crates/x-y/src/a/b.rs` is `x_y.a.b`, `impl T { fn m }` defines `T.m`, and a path
 //! `crate::a::f` becomes `x_y.a.f`.
 
-use super::{Call, Def, DefKind, FileFacts, Import, Language, Ref};
+use super::{Binding, Call, Def, DefKind, FileFacts, Import, Language, Ref, TypeHint};
 use crate::graph::EdgeKind;
 use std::collections::HashSet;
 use tree_sitter::{Node, Parser};
@@ -280,6 +280,7 @@ impl State<'_> {
             "const_item" => self.item(child, DefKind::Const, Scope::Item),
             "static_item" => self.item(child, DefKind::Static, Scope::Item),
             "identifier" => self.ident_ref(child),
+            "let_declaration" => self.let_binding(child),
             "field_declaration" => self.field_def(child),
             "enum_variant" => self.variant_def(child),
             "field_expression" => self.field_ref(child),
@@ -332,12 +333,24 @@ impl State<'_> {
     }
 
     fn push_ref_flagged(&mut self, expr: String, line: usize, kind: EdgeKind, local: bool) {
+        self.push_ref_full(expr, line, kind, local, false);
+    }
+
+    fn push_ref_full(
+        &mut self,
+        expr: String,
+        line: usize,
+        kind: EdgeKind,
+        local: bool,
+        recv_local: bool,
+    ) {
         let enclosing = self.scope.last().map(|s| s.0.clone());
         self.facts.refs.push(Ref {
             enclosing,
             expr,
             line,
             local,
+            recv_local,
             kind,
         });
     }
@@ -382,6 +395,9 @@ impl State<'_> {
                 kind: DefKind::Field,
                 line: self.line(name),
                 bases: Vec::new(),
+                ty: node
+                    .child_by_field_name("type")
+                    .and_then(|t| self.type_hint(t)),
             });
         }
         self.walk(node);
@@ -397,6 +413,7 @@ impl State<'_> {
             kind: DefKind::Variant,
             line: self.line(name),
             bases: Vec::new(),
+            ty: None,
         });
         self.scope.push((qualname, Scope::Item));
         self.walk(node);
@@ -414,13 +431,14 @@ impl State<'_> {
         };
         if field.kind() == "field_identifier" {
             let name = self.text(field);
-            let expr = if simple_receiver(value) && !self.is_local(&root_ident(self, value)) {
+            let (expr, recv_local) = if simple_receiver(value) {
                 let recv: String = self.text(value).split_whitespace().collect();
-                format!("{recv}.{name}")
+                let local = self.is_local(&root_ident(self, value));
+                (format!("{recv}.{name}"), local)
             } else {
-                format!("_.{name}")
+                (format!("_.{name}"), false)
             };
-            self.push_ref(expr, self.line(field), EdgeKind::Field);
+            self.push_ref_full(expr, self.line(field), EdgeKind::Field, false, recv_local);
         }
         self.visit(value);
     }
@@ -553,6 +571,109 @@ impl State<'_> {
         }
     }
 
+    /// A type node as a dotted path with references, generics and smart pointers peeled:
+    /// `&mut a::B<T>` and `Arc<a::B>` give `a.B`; `dyn Tr` gives `Tr`.
+    fn type_hint(&self, n: Node) -> Option<String> {
+        match n.kind() {
+            "type_identifier" => Some(self.text(n)),
+            "scoped_type_identifier" => Some(self.path(&strip_generics(&self.text(n)))),
+            "reference_type" => n
+                .child_by_field_name("type")
+                .and_then(|t| self.type_hint(t)),
+            "dynamic_type" | "abstract_type" => n
+                .child_by_field_name("trait")
+                .and_then(|t| self.type_hint(t)),
+            "generic_type" => {
+                let outer = n.child_by_field_name("type")?;
+                let name = self.type_hint(outer)?;
+                // Pointers forward method calls to what they hold.
+                if matches!(name.as_str(), "Box" | "Arc" | "Rc") {
+                    let args = n.child_by_field_name("type_arguments")?;
+                    let mut c = args.walk();
+                    let first = args.named_children(&mut c).next()?;
+                    return self.type_hint(first);
+                }
+                Some(name)
+            }
+            _ => None,
+        }
+    }
+
+    /// What `let x = <init>` tells us about `x`.
+    fn init_hint(&self, v: Node) -> Option<TypeHint> {
+        match v.kind() {
+            "struct_expression" => {
+                let ty = v.child_by_field_name("name")?;
+                Some(TypeHint::Struct(self.type_name(ty)))
+            }
+            "call_expression" => {
+                let f = v.child_by_field_name("function")?;
+                let callee = self.callee(f);
+                let last = callee.rsplit('.').next().unwrap_or(&callee);
+                if last.starts_with(|c: char| c.is_uppercase()) {
+                    Some(TypeHint::Struct(callee))
+                } else {
+                    Some(TypeHint::Call(callee))
+                }
+            }
+            "reference_expression" | "parenthesized_expression" => {
+                let mut c = v.walk();
+                let inner = v.named_children(&mut c).last()?;
+                self.init_hint(inner)
+            }
+            _ => None,
+        }
+    }
+
+    fn bind_local(&mut self, name: String, hint: TypeHint) {
+        if let Some(enclosing) = self.enclosing_fn() {
+            self.facts.bindings.push(Binding {
+                enclosing,
+                name,
+                hint,
+            });
+        }
+    }
+
+    fn let_binding(&mut self, node: Node) {
+        let pat = node.child_by_field_name("pattern");
+        if let Some(p) = pat.filter(|p| p.kind() == "identifier") {
+            let hint = match node.child_by_field_name("type") {
+                Some(t) => self.type_hint(t).map(TypeHint::Declared),
+                None => node
+                    .child_by_field_name("value")
+                    .and_then(|v| self.init_hint(v)),
+            };
+            if let Some(h) = hint {
+                self.bind_local(self.text(p), h);
+            }
+        }
+        self.walk(node);
+    }
+
+    fn param_bindings(&mut self, func: Node) {
+        let Some(params) = func.child_by_field_name("parameters") else {
+            return;
+        };
+        let mut c = params.walk();
+        for p in params.named_children(&mut c) {
+            if p.kind() != "parameter" {
+                continue;
+            }
+            let (Some(pat), Some(ty)) = (
+                p.child_by_field_name("pattern"),
+                p.child_by_field_name("type"),
+            ) else {
+                continue;
+            };
+            if pat.kind() == "identifier" {
+                if let Some(t) = self.type_hint(ty) {
+                    self.bind_local(self.text(pat), TypeHint::Declared(t));
+                }
+            }
+        }
+    }
+
     fn is_generic(&self, name: &str) -> bool {
         self.generics.iter().any(|g| g.contains(name))
     }
@@ -666,11 +787,18 @@ impl State<'_> {
             return; // `const _: () = ..;` names nothing
         }
         let qualname = self.qualify(&self.name_of(node));
+        let ty = match kind {
+            DefKind::Const | DefKind::Static => node
+                .child_by_field_name("type")
+                .and_then(|t| self.type_hint(t)),
+            _ => None,
+        };
         self.facts.defs.push(Def {
             qualname,
             kind,
             line: self.line(node),
             bases: Vec::new(),
+            ty,
         });
     }
 
@@ -680,11 +808,15 @@ impl State<'_> {
             Some((_, Scope::Type)) => DefKind::Method,
             _ => DefKind::Function,
         };
+        let ret = node
+            .child_by_field_name("return_type")
+            .and_then(|t| self.type_hint(t));
         self.facts.defs.push(Def {
             qualname: qualname.clone(),
             kind,
             line: self.line(node),
             bases: Vec::new(),
+            ty: ret,
         });
         if let (Some(tr), DefKind::Method) = (&self.impl_trait, kind) {
             // This method implements the trait's method of the same name.
@@ -693,12 +825,14 @@ impl State<'_> {
                 expr: format!("{tr}.{}", self.name_of(node)),
                 line: self.line(node),
                 local: false,
+                recv_local: false,
                 kind: EdgeKind::Impl,
             });
         }
         self.scope.push((qualname, Scope::Func));
         self.locals.push(self.collect_locals(node));
         self.generics.push(self.collect_generics(node));
+        self.param_bindings(node);
         self.walk(node);
         self.generics.pop();
         self.locals.pop();
@@ -759,6 +893,7 @@ impl State<'_> {
                 expr: tr.clone(),
                 line: self.line(node),
                 local: false,
+                recv_local: false,
                 kind: EdgeKind::Impl,
             });
             trait_path = Some(tr);
@@ -800,6 +935,7 @@ impl State<'_> {
                     kind: DefKind::Module,
                     line: name_line,
                     bases: Vec::new(),
+                    ty: None,
                 });
                 self.scope.push((q, Scope::Mod));
                 self.walk(body);
@@ -815,6 +951,7 @@ impl State<'_> {
                             kind: DefKind::Module,
                             line: name_line,
                             bases: Vec::new(),
+                            ty: None,
                         });
                         module_of(&target)
                     }
@@ -1026,12 +1163,16 @@ impl State<'_> {
             return;
         }
         let local = !callee.contains('.') && self.is_local(&callee);
+        let recv_local = callee
+            .split_once('.')
+            .is_some_and(|(root, _)| self.is_local(root));
         let enclosing = self.enclosing_fn();
         self.facts.calls.push(Call {
             enclosing,
             callee,
             line,
             local,
+            recv_local,
         });
     }
 
@@ -1050,7 +1191,7 @@ impl State<'_> {
                     .unwrap_or_default();
                 let recv = f.child_by_field_name("value");
                 match recv {
-                    Some(r) if simple_receiver(r) && !self.is_local(&root_ident(self, r)) => {
+                    Some(r) if simple_receiver(r) => {
                         let recv: String = self.text(r).split_whitespace().collect();
                         format!("{recv}.{name}")
                     }
@@ -1143,6 +1284,7 @@ impl State<'_> {
             kind: DefKind::Function,
             line: self.line(node),
             bases: Vec::new(),
+            ty: None,
         });
         // The remaining arguments may name types (`ioctl_read!(name, 0x54, 1, Config)`).
         self.scan_tokens(tt);

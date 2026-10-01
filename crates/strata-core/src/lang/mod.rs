@@ -57,6 +57,9 @@ pub struct Def {
     pub line: usize,
     /// For classes: base-class expressions as written (`Base`, `models.Base`).
     pub bases: Vec<String>,
+    /// Declared type as a dotted path, generics and references stripped: a field's type, a
+    /// function's return type, a const's type. `Self` is kept as written.
+    pub ty: Option<String>,
 }
 
 /// A name bound by an import. `module` is always absolute (plugins resolve relative imports).
@@ -72,6 +75,9 @@ pub struct Import {
 pub struct Call {
     /// Qualname of the enclosing function/method; `None` at module level.
     pub enclosing: Option<String>,
+    /// The receiver's root (`x` in `x.a.m()`) is a local binding, so module names of the same
+    /// spelling must not be tried.
+    pub recv_local: bool,
     /// Callee expression as written, e.g. `helper`, `u.other`, `self.step`.
     pub callee: String,
     pub line: usize,
@@ -79,6 +85,26 @@ pub struct Call {
     /// function of that name when one is in scope (`let x = x();`), else to a closure we
     /// cannot see, in which case it is dropped.
     pub local: bool,
+}
+
+/// What a local binding's type is known from.
+#[derive(Debug, Clone)]
+pub enum TypeHint {
+    /// `x: Type` (a parameter or annotated `let`): a type path.
+    Declared(String),
+    /// `let x = Type { .. }`: a type path.
+    Struct(String),
+    /// `let x = f(..)` / `let x = a.m(..)`: the return type of that callee.
+    Call(String),
+}
+
+/// A local binding (parameter or `let`) and what is known about its type.
+#[derive(Debug, Clone)]
+pub struct Binding {
+    /// Qualname of the function the binding lives in.
+    pub enclosing: String,
+    pub name: String,
+    pub hint: TypeHint,
 }
 
 /// A non-call use of a name: a type in a signature, a field access, a path segment...
@@ -92,6 +118,8 @@ pub struct Ref {
     /// A name that is also bound locally. Kept only if it resolves to a variant or constant
     /// (a pattern `Round =>` after `use Kind::*`), never to a function a local shadows.
     pub local: bool,
+    /// See [`Call::recv_local`].
+    pub recv_local: bool,
     /// What the plugin knows: `Type`, `Path` (a prefix of a longer path), `Value`, `Field`.
     /// The resolver refines it from what the name turns out to be.
     pub kind: EdgeKind,
@@ -99,6 +127,7 @@ pub struct Ref {
 
 #[derive(Debug, Clone, Default)]
 pub struct FileFacts {
+    pub bindings: Vec<Binding>,
     pub refs: Vec<Ref>,
     pub defs: Vec<Def>,
     pub imports: Vec<Import>,

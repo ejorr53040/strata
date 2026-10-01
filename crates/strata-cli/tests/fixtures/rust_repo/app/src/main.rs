@@ -183,3 +183,14 @@ struct Cfg {
 fn chain() -> Vec<i32> {
     vec![1].into_iter().map(double).collect::<Vec<_>>()
 }
+
+struct Holder {
+    g: shapes::Gauge,
+}
+
+fn typed(h: Holder, g2: shapes::Gauge) {
+    let _a = h.g.level();
+    let c = shapes::Circle::new(1.0);
+    let _b = c.area();
+    let _d = g2.level();
+}

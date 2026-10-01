@@ -1,4 +1,4 @@
-use crate::lang::{self, Call, DefKind, FileFacts, Language};
+use crate::lang::{self, Call, DefKind, FileFacts, Language, TypeHint};
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -128,7 +128,9 @@ struct Index<'a> {
     symbols: BTreeMap<String, Sym>,
     /// Ids of struct/variant fields. Kept apart from `symbols` because a field and a method
     /// may share a name (`self.level` and `self.level()`).
-    fields: std::collections::BTreeSet<String>,
+    fields: BTreeMap<String, Sym>,
+    /// (function id, name) -> what a parameter or `let` is known to be.
+    bindings: BTreeMap<(String, String), (String, TypeHint)>,
     /// class id -> indexed base class ids
     bases: BTreeMap<String, Vec<String>>,
     /// class id -> indexed direct subclass ids
@@ -138,6 +140,11 @@ struct Index<'a> {
 
 struct Sym {
     kind: DefKind,
+    /// Declared type (field/const) or return type (fn), as written in `module`.
+    ty: Option<String>,
+    module: String,
+    /// Qualname inside `module`.
+    qual: String,
 }
 
 /// What a name means in a module's scope.
@@ -167,22 +174,36 @@ pub fn build(sources: &[Source], unindexed_modules: &[String]) -> Graph {
         }
     }
     let mut symbols = BTreeMap::new();
-    let mut fields = std::collections::BTreeSet::new();
+    let mut fields = BTreeMap::new();
+    let mut bindings = BTreeMap::new();
     for (module, (_, facts, _)) in &modules {
         for d in &facts.defs {
             let id = qualify(module, &d.qualname);
+            let sym = || Sym {
+                kind: d.kind,
+                ty: d.ty.clone(),
+                module: module.clone(),
+                qual: d.qualname.clone(),
+            };
             if d.kind == DefKind::Field {
-                fields.insert(id.clone());
-                symbols.entry(id).or_insert(Sym { kind: d.kind });
+                fields.insert(id.clone(), sym());
+                symbols.entry(id).or_insert_with(sym);
             } else {
-                symbols.insert(id, Sym { kind: d.kind });
+                symbols.insert(id, sym());
             }
+        }
+        for b in &facts.bindings {
+            bindings.insert(
+                (qualify(module, &b.enclosing), b.name.clone()),
+                (module.clone(), b.hint.clone()),
+            );
         }
     }
     let mut index = Index {
         modules,
         symbols,
         fields,
+        bindings,
         bases: BTreeMap::new(),
         subclasses: BTreeMap::new(),
         unindexed: unindexed_modules,
@@ -221,7 +242,13 @@ impl Index<'_> {
             path: path.to_string(),
             line: call.line,
         };
-        match self.resolve(module, call.enclosing.as_deref(), &call.callee) {
+        match self.resolve_d(
+            module,
+            call.enclosing.as_deref(),
+            &call.callee,
+            call.recv_local,
+            0,
+        ) {
             Outcome::Resolved(t) => {
                 edge.state = EdgeState::Resolved;
                 edge.targets = t;
@@ -472,6 +499,17 @@ impl Index<'_> {
     }
 
     fn resolve(&self, module: &str, enclosing: Option<&str>, callee: &str) -> Outcome {
+        self.resolve_d(module, enclosing, callee, false, 0)
+    }
+
+    fn resolve_d(
+        &self,
+        module: &str,
+        enclosing: Option<&str>,
+        callee: &str,
+        recv_local: bool,
+        depth: usize,
+    ) -> Outcome {
         let lang = self.modules[module].0;
         if !callee
             .chars()
@@ -485,7 +523,19 @@ impl Index<'_> {
                 return self.dispatch(lang, &class, name);
             }
         }
+        // `x.a.m()`: when the receiver's type is known the call is to that type's `m`.
+        if segs.len() >= 2 {
+            let recv = &segs[..segs.len() - 1];
+            if let Some(class) = self.chain_type(module, enclosing, recv, depth) {
+                return self.dispatch(lang, &class, segs[segs.len() - 1]);
+            }
+        }
+        // A local of unknown type: its name is not a module or item.
+        let skip_lookup = recv_local && segs.len() >= 2;
         for k in (1..=segs.len()).rev() {
+            if skip_lookup {
+                break;
+            }
             let l = self.lookup(module, &segs[..k].join("."));
             if !matches!(l, Lookup::Missing) {
                 // `STATIC.method()`: a value of unknown type, not a path into the item.
@@ -504,6 +554,9 @@ impl Index<'_> {
         }
         // A fully written module path (`crate::util::f` is rewritten to `app.util.f`).
         for k in (1..segs.len()).rev() {
+            if skip_lookup {
+                break;
+            }
             let m = segs[..k].join(".");
             if self.modules.contains_key(&m) {
                 return self.resolve_in_module(&m, &segs[k..], false);
@@ -527,6 +580,81 @@ impl Index<'_> {
         } else {
             Outcome::Candidate(targets)
         }
+    }
+
+    /// The class a type path names, as seen from `enclosing` in `module`.
+    fn type_class(&self, module: &str, enclosing: Option<&str>, path: &str) -> Option<String> {
+        match self.resolve_ref(module, enclosing, path, false)? {
+            Outcome::Resolved(t) if t.len() == 1 && self.is_class(&t[0]) => Some(t[0].clone()),
+            _ => None,
+        }
+    }
+
+    /// The class a local binding is known to hold, from its parameter or `let` hint.
+    fn binding_type(
+        &self,
+        module: &str,
+        enclosing: &str,
+        name: &str,
+        depth: usize,
+    ) -> Option<String> {
+        let mut scope = enclosing;
+        loop {
+            if let Some((m, hint)) = self
+                .bindings
+                .get(&(qualify(module, scope), name.to_string()))
+            {
+                return self.hint_class(m, scope, hint, depth);
+            }
+            scope = scope.rsplit_once('.')?.0;
+        }
+    }
+
+    fn hint_class(
+        &self,
+        module: &str,
+        scope: &str,
+        hint: &TypeHint,
+        depth: usize,
+    ) -> Option<String> {
+        if depth > 6 {
+            return None;
+        }
+        match hint {
+            TypeHint::Declared(p) | TypeHint::Struct(p) => self.type_class(module, Some(scope), p),
+            TypeHint::Call(callee) => {
+                let fid = match self.resolve_d(module, Some(scope), callee, false, depth + 1) {
+                    Outcome::Resolved(t) if t.len() == 1 => t[0].clone(),
+                    _ => return None,
+                };
+                let sym = self.symbols.get(&fid)?;
+                let ret = sym.ty.as_deref()?;
+                self.type_class(&sym.module, Some(&sym.qual), ret)
+            }
+        }
+    }
+
+    /// The class of a receiver chain `x.a.b`: `x` is `self` or a typed local, each further
+    /// segment a field with a declared type.
+    fn chain_type(
+        &self,
+        module: &str,
+        enclosing: Option<&str>,
+        segs: &[&str],
+        depth: usize,
+    ) -> Option<String> {
+        let enclosing = enclosing?;
+        let mut class = if segs[0] == "self" {
+            self.class_of(module, enclosing)?
+        } else {
+            self.binding_type(module, enclosing, segs[0], depth)?
+        };
+        for seg in &segs[1..] {
+            let id = self.find_member(&class, seg)?;
+            let field = self.fields.get(&id)?;
+            class = self.type_class(&field.module, Some(&field.qual), field.ty.as_deref()?)?;
+        }
+        Some(class)
     }
 
     /// An item defined inside an enclosing function or inline module (`static N` in `fn f`,
@@ -563,7 +691,7 @@ impl Index<'_> {
     /// plus unresolved type/field uses (which flag gaps), are worth recording.
     fn ref_edge(&self, module: &str, path: &str, r: &lang::Ref) -> Option<Edge> {
         let caller = qualify(module, r.enclosing.as_deref().unwrap_or("<module>"));
-        let outcome = self.resolve_ref(module, r.enclosing.as_deref(), &r.expr)?;
+        let outcome = self.resolve_ref(module, r.enclosing.as_deref(), &r.expr, r.recv_local)?;
         let (state, targets, reason) = match outcome {
             Outcome::Resolved(t) => (EdgeState::Resolved, t, None),
             Outcome::Candidate(t) => (EdgeState::Candidate, t, None),
@@ -614,7 +742,7 @@ impl Index<'_> {
 
     /// What a reference really is, from what it points at.
     fn refine(&self, initial: EdgeKind, target: &str) -> EdgeKind {
-        if initial == EdgeKind::Field && self.fields.contains(target) {
+        if initial == EdgeKind::Field && self.fields.contains_key(target) {
             return EdgeKind::Field;
         }
         match self.symbols.get(target).map(|s| s.kind) {
@@ -628,7 +756,13 @@ impl Index<'_> {
         }
     }
 
-    fn resolve_ref(&self, module: &str, enclosing: Option<&str>, expr: &str) -> Option<Outcome> {
+    fn resolve_ref(
+        &self,
+        module: &str,
+        enclosing: Option<&str>,
+        expr: &str,
+        recv_local: bool,
+    ) -> Option<Outcome> {
         let lang = self.modules[module].0;
         if self.modules.contains_key(expr) {
             return Some(Outcome::Resolved(vec![expr.to_string()]));
@@ -639,6 +773,19 @@ impl Index<'_> {
             return Some(Outcome::Resolved(vec![main]));
         }
         let segs: Vec<&str> = expr.split('.').collect();
+        if segs.len() >= 2 && (segs[0] == "self" || recv_local) {
+            let recv = &segs[..segs.len() - 1];
+            let name = segs[segs.len() - 1];
+            if let Some(class) = self.chain_type(module, enclosing, recv, 0) {
+                return Some(match self.find_member(&class, name) {
+                    Some(m) => Outcome::Resolved(vec![m]),
+                    None => self.unknown_member(lang, &class, name),
+                });
+            }
+            if recv_local {
+                return Some(self.by_member_name(lang, name));
+            }
+        }
         if segs[0] == "_" && segs.len() > 1 {
             // A receiver whose type we do not know.
             return Some(self.by_member_name(lang, segs[segs.len() - 1]));
@@ -696,7 +843,7 @@ impl Index<'_> {
         let suffix = format!(".{name}");
         let targets: Vec<String> = self
             .fields
-            .iter()
+            .keys()
             .filter(|id| id.ends_with(&suffix))
             .cloned()
             .collect();

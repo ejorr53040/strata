@@ -161,6 +161,7 @@ impl State<'_> {
             kind,
             line: node.start_position().row + 1,
             bases,
+            ty: None,
         });
         self.scope
             .push((qualname, if is_class { Scope::Class } else { Scope::Func }));
@@ -186,6 +187,7 @@ impl State<'_> {
             callee,
             line: node.start_position().row + 1,
             local: false,
+            recv_local: false,
         });
     }
 

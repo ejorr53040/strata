@@ -56,7 +56,7 @@ fn callees_resolve_paths_imports_and_self_calls() {
         run(&["callees", "app.main.main"]),
         vec![
             "resolved app.main.main -> shapes.Circle.new app/src/main.rs:5",
-            "candidate app.main.main -> shapes.Circle.area,shapes.Shape.area app/src/main.rs:6",
+            "resolved app.main.main -> shapes.Circle.area app/src/main.rs:6",
             "resolved app.main.main -> shapes.util.square app/src/main.rs:7",
             "external app.main.main -> std.process.exit (builtin) app/src/main.rs:8",
         ]
@@ -69,7 +69,7 @@ fn local_variables_shadow_imported_module_names() {
         run(&["callees", "app.main.shadow"]),
         vec![
             "resolved app.main.shadow -> shapes.Circle.new app/src/main.rs:14",
-            "candidate app.main.shadow -> shapes.Circle.area,shapes.Shape.area app/src/main.rs:15",
+            "resolved app.main.shadow -> shapes.Circle.area app/src/main.rs:15",
         ]
     );
 }
@@ -80,7 +80,7 @@ fn std_methods_nested_fns_and_constructors_do_not_pollute_the_graph() {
         run(&["callees", "app.main.ext"]),
         vec![
             "external app.main.ext -> Vec.new (builtin) app/src/main.rs:19",
-            "external app.main.ext -> _.push (no indexed method `push`; receiver type unknown) app/src/main.rs:21",
+            "external app.main.ext -> v.push (no indexed method `push`; receiver type unknown) app/src/main.rs:21",
             "resolved app.main.ext -> app.main.ext.inner app/src/main.rs:23",
         ]
     );
@@ -206,6 +206,7 @@ fn type_references_are_edges_with_their_enclosing_item_as_the_source() {
             "resolved[type] app.main.main -> shapes.Circle app/src/main.rs:5",
             "resolved[type] app.main.shadow -> shapes.Circle app/src/main.rs:14",
             "resolved[type] app.main.field_on_unknown -> shapes.Circle app/src/main.rs:112",
+            "resolved[type] app.main.typed -> shapes.Circle app/src/main.rs:193",
             "resolved[type] shapes.Circle -> shapes.Circle shapes/src/lib.rs:18",
             "resolved[type] shapes.Circle.new -> shapes.Circle shapes/src/lib.rs:19",
             "resolved[type] shapes.Circle.new -> shapes.Circle shapes/src/lib.rs:20",
@@ -305,7 +306,7 @@ fn field_accesses_initialisers_and_unknown_receivers_are_field_references() {
     assert_eq!(
         refs("shapes.Circle.r"),
         vec![
-            "candidate[field] app.main.field_on_unknown -> shapes.Circle.r app/src/main.rs:113",
+            "resolved[field] app.main.field_on_unknown -> shapes.Circle.r app/src/main.rs:113",
             "resolved[field] shapes.Circle.new -> shapes.Circle.r shapes/src/lib.rs:20",
             "resolved[field] shapes.Circle.area -> shapes.Circle.r shapes/src/lib.rs:29",
         ]
@@ -405,7 +406,7 @@ fn a_field_and_a_method_of_the_same_name_are_both_referenced() {
     );
     assert!(
         lines.contains(
-            &"candidate shapes.read -> shapes.Gauge.level shapes/src/lib.rs:111".to_string()
+            &"resolved shapes.read -> shapes.Gauge.level shapes/src/lib.rs:111".to_string()
         ),
         "{lines:#?}"
     );
@@ -542,4 +543,19 @@ fn impls_of_traits_outside_the_repo_are_kept_as_external_edges() {
         .expect("Guard2.drop implements Drop");
     assert_eq!(drop["state"], "external");
     assert_eq!(drop["callee"], "Drop.drop");
+}
+
+// Depth round 8: receiver types make method calls exact.
+
+#[test]
+fn receiver_types_from_params_fields_and_constructors_make_calls_exact() {
+    assert_eq!(
+        run(&["callees", "app.main.typed"]),
+        vec![
+            "resolved app.main.typed -> shapes.Gauge.level app/src/main.rs:192",
+            "resolved app.main.typed -> shapes.Circle.new app/src/main.rs:193",
+            "resolved app.main.typed -> shapes.Circle.area app/src/main.rs:194",
+            "resolved app.main.typed -> shapes.Gauge.level app/src/main.rs:195",
+        ]
+    );
 }
