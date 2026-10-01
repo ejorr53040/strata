@@ -230,7 +230,7 @@ impl State<'_> {
             "attribute_item" | "inner_attribute_item" => self.attribute(child),
             "type_identifier" => self.type_ref(child),
             "scoped_type_identifier" => self.scoped_ref(child, EdgeKind::Type, true),
-            "scoped_identifier" => self.scoped_ref(child, EdgeKind::Value, false),
+            "scoped_identifier" => self.scoped_ref(child, EdgeKind::Value, true),
             _ => self.walk(child),
         }
     }
@@ -259,11 +259,16 @@ impl State<'_> {
     }
 
     fn push_ref(&mut self, expr: String, line: usize, kind: EdgeKind) {
+        self.push_ref_flagged(expr, line, kind, false);
+    }
+
+    fn push_ref_flagged(&mut self, expr: String, line: usize, kind: EdgeKind, local: bool) {
         let enclosing = self.scope.last().map(|s| s.0.clone());
         self.facts.refs.push(Ref {
             enclosing,
             expr,
             line,
+            local,
             kind,
         });
     }
@@ -287,7 +292,14 @@ impl State<'_> {
                 .is_some_and(|n| n.id() == node.id())
         });
         let name = self.text(node);
-        if is_def_name || self.is_local(&name) {
+        if is_def_name {
+            return;
+        }
+        if self.is_local(&name) {
+            // Only an uppercase local can really be a variant or constant in a pattern.
+            if name.starts_with(|c: char| c.is_uppercase()) {
+                self.push_ref_flagged(name, self.line(node), EdgeKind::Value, true);
+            }
             return;
         }
         self.push_ref(name, self.line(node), EdgeKind::Value);

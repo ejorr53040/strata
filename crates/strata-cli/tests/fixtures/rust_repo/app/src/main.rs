@@ -112,3 +112,11 @@ fn consts_and_values() {
 fn field_on_unknown(c: shapes::Circle) {
     let _ = c.r;
 }
+
+use shapes::Kind::*;
+
+fn bare_variant(k: shapes::Kind) -> i32 {
+    match k {
+        Round => 1,
+    }
+}

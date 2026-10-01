@@ -87,6 +87,9 @@ pub struct Ref {
     pub enclosing: Option<String>,
     pub expr: String,
     pub line: usize,
+    /// A name that is also bound locally. Kept only if it resolves to a variant or constant
+    /// (a pattern `Round =>` after `use Kind::*`), never to a function a local shadows.
+    pub local: bool,
     /// What the plugin knows: `Type`, `Path` (a prefix of a longer path), `Value`, `Field`.
     /// The resolver refines it from what the name turns out to be.
     pub kind: EdgeKind,

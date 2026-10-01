@@ -520,6 +520,9 @@ impl Index<'_> {
             _ => return None,
         };
         let kind = targets.first().map_or(r.kind, |t| self.refine(r.kind, t));
+        if r.local && !matches!(kind, EdgeKind::Variant) && !self.is_const_target(&targets) {
+            return None;
+        }
         Some(Edge {
             kind,
             caller,
@@ -530,6 +533,14 @@ impl Index<'_> {
             reason,
             path: path.to_string(),
             line: r.line,
+        })
+    }
+
+    fn is_const_target(&self, targets: &[String]) -> bool {
+        targets.first().is_some_and(|t| {
+            self.symbols
+                .get(t)
+                .is_some_and(|s| matches!(s.kind, DefKind::Const | DefKind::Static))
         })
     }
 

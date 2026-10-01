@@ -86,3 +86,13 @@ pub enum Shape2 {
 pub fn make_sq() -> Shape2 {
     Shape2::Sq { side: 1.0 }
 }
+
+pub fn kind_ref() -> Kind {
+    Kind::Round
+}
+
+pub fn kind_match(k: Kind) -> i32 {
+    match k {
+        Kind::Round => 1,
+    }
+}

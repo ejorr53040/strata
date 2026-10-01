@@ -308,3 +308,17 @@ fn field_accesses_initialisers_and_unknown_receivers_are_field_references() {
         vec!["resolved[field] shapes.make_sq -> shapes.Shape2.Sq.side shapes/src/lib.rs:87"]
     );
 }
+
+// Depth round 4: enum variants named in expressions and patterns.
+
+#[test]
+fn variant_paths_and_imported_bare_variants_are_variant_references() {
+    assert_eq!(
+        refs("shapes.Kind.Round"),
+        vec![
+            "resolved[variant] app.main.bare_variant -> shapes.Kind.Round app/src/main.rs:120",
+            "resolved[variant] shapes.kind_ref -> shapes.Kind.Round shapes/src/lib.rs:91",
+            "resolved[variant] shapes.kind_match -> shapes.Kind.Round shapes/src/lib.rs:96",
+        ]
+    );
+}
