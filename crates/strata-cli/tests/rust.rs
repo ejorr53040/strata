@@ -204,6 +204,7 @@ fn type_references_are_edges_with_their_enclosing_item_as_the_source() {
         vec![
             "resolved[type] app.main.main -> shapes.Circle app/src/main.rs:5",
             "resolved[type] app.main.shadow -> shapes.Circle app/src/main.rs:14",
+            "resolved[type] app.main.field_on_unknown -> shapes.Circle app/src/main.rs:112",
             "resolved[type] shapes.Circle -> shapes.Circle shapes/src/lib.rs:18",
             "resolved[type] shapes.Circle.new -> shapes.Circle shapes/src/lib.rs:19",
             "resolved[type] shapes.Circle.new -> shapes.Circle shapes/src/lib.rs:20",
@@ -274,5 +275,36 @@ fn functions_used_as_values_and_in_attributes_are_references() {
             "resolved[value] app.main.Args -> app.main.double app/src/main.rs:102",
             "resolved[value] app.main.consts_and_values -> app.main.double app/src/main.rs:109",
         ]
+    );
+}
+
+// Depth round 3: fields (and the variants that own some).
+
+#[test]
+fn fields_and_variants_are_symbols() {
+    let syms = run(&["symbols", ""]);
+    for want in [
+        "field Circle.r shapes/src/lib.rs:4",
+        "variant Kind.Round shapes/src/lib.rs:8",
+        "variant Shape2.Sq shapes/src/lib.rs:82",
+        "field Shape2.Sq.side shapes/src/lib.rs:82",
+    ] {
+        assert!(syms.contains(&want.to_string()), "missing {want}");
+    }
+}
+
+#[test]
+fn field_accesses_initialisers_and_unknown_receivers_are_field_references() {
+    assert_eq!(
+        refs("shapes.Circle.r"),
+        vec![
+            "candidate[field] app.main.field_on_unknown -> shapes.Circle.r app/src/main.rs:113",
+            "resolved[field] shapes.Circle.new -> shapes.Circle.r shapes/src/lib.rs:20",
+            "resolved[field] shapes.Circle.area -> shapes.Circle.r shapes/src/lib.rs:29",
+        ]
+    );
+    assert_eq!(
+        refs("shapes.Shape2.Sq.side"),
+        vec!["resolved[field] shapes.make_sq -> shapes.Shape2.Sq.side shapes/src/lib.rs:87"]
     );
 }

@@ -223,6 +223,10 @@ impl State<'_> {
             "const_item" => self.item(child, DefKind::Const, Scope::Item),
             "static_item" => self.item(child, DefKind::Static, Scope::Item),
             "identifier" => self.ident_ref(child),
+            "field_declaration" => self.field_def(child),
+            "enum_variant" => self.variant_def(child),
+            "field_expression" => self.field_ref(child),
+            "struct_expression" | "struct_pattern" => self.struct_fields(child),
             "attribute_item" | "inner_attribute_item" => self.attribute(child),
             "type_identifier" => self.type_ref(child),
             "scoped_type_identifier" => self.scoped_ref(child, EdgeKind::Type, true),
@@ -287,6 +291,116 @@ impl State<'_> {
             return;
         }
         self.push_ref(name, self.line(node), EdgeKind::Value);
+    }
+
+    fn field_def(&mut self, node: Node) {
+        if let Some(name) = node.child_by_field_name("name") {
+            let qualname = self.qualify(&self.text(name));
+            self.facts.defs.push(Def {
+                qualname,
+                kind: DefKind::Field,
+                line: self.line(name),
+                bases: Vec::new(),
+            });
+        }
+        self.walk(node);
+    }
+
+    fn variant_def(&mut self, node: Node) {
+        let Some(name) = node.child_by_field_name("name") else {
+            return self.walk(node);
+        };
+        let qualname = self.qualify(&self.text(name));
+        self.facts.defs.push(Def {
+            qualname: qualname.clone(),
+            kind: DefKind::Variant,
+            line: self.line(name),
+            bases: Vec::new(),
+        });
+        self.scope.push((qualname, Scope::Item));
+        self.walk(node);
+        self.scope.pop();
+    }
+
+    /// `recv.field` outside a call: a field of the receiver's type. `self.` and indexed
+    /// paths name their owner; anything else is a receiver of unknown type (`_`).
+    fn field_ref(&mut self, node: Node) {
+        let (Some(value), Some(field)) = (
+            node.child_by_field_name("value"),
+            node.child_by_field_name("field"),
+        ) else {
+            return self.walk(node);
+        };
+        if field.kind() == "field_identifier" {
+            let name = self.text(field);
+            let expr = if simple_receiver(value) && !self.is_local(&root_ident(self, value)) {
+                let recv: String = self.text(value).split_whitespace().collect();
+                format!("{recv}.{name}")
+            } else {
+                format!("_.{name}")
+            };
+            self.push_ref(expr, self.line(field), EdgeKind::Field);
+        }
+        self.visit(value);
+    }
+
+    /// `Type { a: 1, b }` and `Type { a, .. }`: a field reference per named field, written
+    /// as `Type.field` (variants: `Enum.Variant.field`).
+    fn struct_fields(&mut self, node: Node) {
+        let ty = node
+            .child_by_field_name("name")
+            .or_else(|| node.child_by_field_name("type"));
+        let Some(ty) = ty else {
+            return self.walk(node);
+        };
+        let ty_path = self.type_name(ty);
+        self.visit(ty);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.id() != ty.id() {
+                self.struct_entry(child, &ty_path);
+            }
+        }
+    }
+
+    fn struct_entry(&mut self, node: Node, ty_path: &str) {
+        match node.kind() {
+            "field_initializer_list" => {
+                let mut c = node.walk();
+                for e in node.named_children(&mut c) {
+                    self.struct_entry(e, ty_path);
+                }
+            }
+            "field_initializer" | "field_pattern" => {
+                let name = node
+                    .child_by_field_name("field")
+                    .or_else(|| node.child_by_field_name("name"));
+                if let Some(n) = name {
+                    self.push_ref(
+                        format!("{ty_path}.{}", self.text(n)),
+                        self.line(n),
+                        EdgeKind::Field,
+                    );
+                }
+                let mut c = node.walk();
+                for part in node.children(&mut c) {
+                    if Some(part.id()) != name.map(|n| n.id()) {
+                        self.visit(part);
+                    }
+                }
+            }
+            // `Type { a }`: the identifier names the field (and reads a local of that name).
+            "shorthand_field_initializer" => {
+                if let Some(n) = node.named_child(0) {
+                    self.push_ref(
+                        format!("{ty_path}.{}", self.text(n)),
+                        self.line(n),
+                        EdgeKind::Field,
+                    );
+                }
+            }
+            _ => self.visit(node),
+        }
     }
 
     /// `#[arg(value_parser = parse_env)]`: the path after `=` names an item.

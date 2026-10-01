@@ -77,3 +77,12 @@ pub fn use_ioctl() {
 pub fn ident<T: Shape>(x: T) -> T {
     x
 }
+
+pub enum Shape2 {
+    Sq { side: f64 },
+    Pt,
+}
+
+pub fn make_sq() -> Shape2 {
+    Shape2::Sq { side: 1.0 }
+}

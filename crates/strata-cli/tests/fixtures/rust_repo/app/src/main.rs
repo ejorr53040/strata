@@ -108,3 +108,7 @@ fn consts_and_values() {
     let _n = NAME.len();
     let _v: Vec<i32> = vec![1].into_iter().map(double).collect();
 }
+
+fn field_on_unknown(c: shapes::Circle) {
+    let _ = c.r;
+}

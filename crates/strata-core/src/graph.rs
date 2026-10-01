@@ -348,6 +348,12 @@ impl Index<'_> {
         self.find_in(class, name, seen, true)
     }
 
+    /// Follow `a.b.c` through members: `Enum.Variant.field`.
+    fn walk_members(&self, id: &str, path: &[&str]) -> Option<String> {
+        path.iter()
+            .try_fold(id.to_string(), |cur, seg| self.find_member(&cur, seg))
+    }
+
     /// A field, variant, constant or method of `class` (or its bases) by name.
     fn find_member(&self, class: &str, name: &str) -> Option<String> {
         self.find_in(class, name, &mut Vec::new(), false)
@@ -611,7 +617,7 @@ impl Index<'_> {
             Lookup::Def(id) => {
                 // `Class.method(...)` names its target statically, so inheritance applies but overrides don't.
                 let found = match rest {
-                    [name] if self.is_class(&id) && any => self.find_member(&id, name),
+                    rest if any && self.is_class(&id) => self.walk_members(&id, rest),
                     [name] if self.is_class(&id) => self.find_method(&id, name),
                     _ => None,
                 };
