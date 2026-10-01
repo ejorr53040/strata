@@ -375,15 +375,15 @@ def chart(runs):
         f'<desc id="d">{n} runs. Recall of symbols, call sites and call targets against '
         "rust-analyzer, and code-review finding counts. Values are in the table below the chart.</desc>",
         "<style>",
-        ":root{--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--grid:#e4e3df;--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--bar:#2a78d6}",
-        "@media (prefers-color-scheme:dark){:root{--surface:#1a1a19;--ink:#fff;--ink2:#c3c2b7;--grid:#34332f;--s1:#3987e5;--s2:#d95926;--s3:#199e70;--bar:#3987e5}}",
-        "text{font:12px system-ui,sans-serif;fill:var(--ink2)} .h{font-weight:600;fill:var(--ink);font-size:13px}",
-        ".grid{stroke:var(--grid);stroke-width:1} .ln{fill:none;stroke-width:2;stroke-linejoin:round}",
-        ".s1{stroke:var(--s1)} .s2{stroke:var(--s2)} .s3{stroke:var(--s3)}",
-        ".d1{fill:var(--s1)} .d2{fill:var(--s2)} .d3{fill:var(--s3)} .dot{stroke:var(--surface);stroke-width:2}",
-        ".bar{fill:var(--bar)} .v{fill:var(--ink);font-weight:600}",
+        ".bg{fill:#fcfcfb} text{font:12px system-ui,sans-serif;fill:#52514e} .h{font-weight:600;fill:#0b0b0b;font-size:13px}",
+        ".v{fill:#0b0b0b;font-weight:600} .grid{stroke:#e4e3df;stroke-width:1} .ln{fill:none;stroke-width:2;stroke-linejoin:round}",
+        ".s1{stroke:#2a78d6} .s2{stroke:#eb6834} .s3{stroke:#1baf7a}",
+        ".d1{fill:#2a78d6} .d2{fill:#eb6834} .d3{fill:#1baf7a} .dot{stroke:#fcfcfb;stroke-width:2} .bar{fill:#2a78d6}",
+        "@media (prefers-color-scheme:dark){.bg{fill:#1a1a19} text{fill:#c3c2b7} .h,.v{fill:#fff} .grid{stroke:#34332f}",
+        ".s1{stroke:#3987e5} .s2{stroke:#d95926} .s3{stroke:#199e70} .d1{fill:#3987e5} .d2{fill:#d95926} .d3{fill:#199e70}",
+        ".dot{stroke:#1a1a19} .bar{fill:#3987e5}}",
         "</style>",
-        f'<rect width="{W}" height="{H}" fill="var(--surface)"/>',
+        f'<rect class="bg" width="{W}" height="{H}"/>',
         f'<text class="h" x="{x0}" y="26">Recall vs rust-analyzer (%, higher is better)</text>',
     ]
     # legend
