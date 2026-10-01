@@ -198,3 +198,20 @@ fn typed(h: Holder, g2: shapes::Gauge) {
 fn extra_user(c: shapes::Circle) -> f64 {
     c.extra()
 }
+
+fn path_beats_local() {
+    let util = 1;
+    let _a = util::square(1.0);
+    let _b = util;
+}
+
+fn pick2() {}
+
+fn pattern_path(k: shapes::Kind) {
+    match k {
+        pick2::Missing => {}
+        _ => {
+            let _f = pick2;
+        }
+    }
+}

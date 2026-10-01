@@ -350,6 +350,7 @@ fn modules_are_symbols_and_path_segments_and_uses_are_edges_to_them() {
         vec![
             "resolved[import] app.main.<module> -> shapes.util app/src/main.rs:1",
             "resolved[import] app.main.<module> -> shapes.util app/src/main.rs:11",
+            "resolved[path] app.main.path_beats_local -> shapes.util app/src/main.rs:204",
             "resolved[path] shapes.<module> -> shapes.util shapes/src/lib.rs:1",
             "resolved[path] shapes.Circle.area -> shapes.util shapes/src/lib.rs:29",
             "resolved[import] shapes.<module> -> shapes.util shapes/src/lib.rs:50",
@@ -568,4 +569,19 @@ fn methods_of_an_impl_in_another_module_belong_to_the_type() {
         run(&["callees", "app.main.extra_user"]),
         vec!["resolved app.main.extra_user -> shapes.Circle.extra app/src/main.rs:199"]
     );
+}
+
+#[test]
+fn a_path_call_names_the_module_even_when_a_local_has_the_same_name() {
+    assert_eq!(
+        run(&["callees", "app.main.path_beats_local"]),
+        vec!["resolved app.main.path_beats_local -> shapes.util.square app/src/main.rs:204"]
+    );
+}
+
+#[test]
+fn path_segments_in_patterns_are_not_local_bindings() {
+    assert!(refs("app.main.pick2").contains(
+        &"resolved[value] app.main.pattern_path -> app.main.pick2 app/src/main.rs:214".to_string()
+    ));
 }

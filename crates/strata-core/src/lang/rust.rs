@@ -860,6 +860,10 @@ impl State<'_> {
             if matches!(n.kind(), "identifier" | "shorthand_field_identifier") {
                 out.insert(n.utf8_text(src).unwrap_or_default().to_string());
             }
+            // `a::B::C(x)`: the segments of a path are not bindings.
+            if matches!(n.kind(), "scoped_identifier" | "scoped_type_identifier") {
+                return;
+            }
             // `Some(x) if guard(x)`: the guard is an expression, not a binding.
             let guard = n.child_by_field_name("condition").map(|g| g.id());
             let mut c = n.walk();
@@ -1161,7 +1165,8 @@ impl State<'_> {
         };
         let callee = self.callee(f);
         if callee != "__strata_macro" {
-            self.push_call(callee, self.line(node));
+            let recv_local = self.method_on_local(f);
+            self.push_call(callee, self.line(node), recv_local);
         }
         let path_node = if f.kind() == "generic_function" {
             f.child_by_field_name("function")
@@ -1173,7 +1178,20 @@ impl State<'_> {
         }
     }
 
-    fn push_call(&mut self, callee: String, line: usize) {
+    /// `x.m()` where `x` is a local binding: the name `x` is not a module or item.
+    fn method_on_local(&self, f: Node) -> bool {
+        match f.kind() {
+            "field_expression" => f
+                .child_by_field_name("value")
+                .is_some_and(|r| simple_receiver(r) && self.is_local(&root_ident(self, r))),
+            "generic_function" => f
+                .child_by_field_name("function")
+                .is_some_and(|g| self.method_on_local(g)),
+            _ => false,
+        }
+    }
+
+    fn push_call(&mut self, callee: String, line: usize, recv_local: bool) {
         // `Enum::Variant(..)` and `Wrapper(..)` build values: a reference to the type or
         // variant, not a call edge.
         let last = callee.rsplit('.').next().unwrap_or(&callee);
@@ -1182,9 +1200,6 @@ impl State<'_> {
             return;
         }
         let local = !callee.contains('.') && self.is_local(&callee);
-        let recv_local = callee
-            .split_once('.')
-            .is_some_and(|(root, _)| self.is_local(root));
         let enclosing = self.enclosing_fn();
         self.facts.calls.push(Call {
             enclosing,
@@ -1252,13 +1267,13 @@ impl State<'_> {
             let segs: Vec<&str> = parts.iter().map(String::as_str).collect();
             if i >= 1 && kids[i - 1].kind() == "." {
                 if called {
-                    self.push_call(format!("_.{}", parts[0]), line);
+                    self.push_call(format!("_.{}", parts[0]), line, false);
                 } else {
                     self.push_ref(format!("_.{}", parts[0]), line, EdgeKind::Field);
                 }
             } else if called {
                 self.path_refs(&segs, self.line(k), line, None);
-                self.push_call(self.path(&segs.join("::")), line);
+                self.push_call(self.path(&segs.join("::")), line, false);
             } else if parts.len() > 1 {
                 self.path_refs(&segs, self.line(k), line, Some(EdgeKind::Value));
             } else if parts[0].starts_with(|ch: char| ch.is_uppercase()) {
