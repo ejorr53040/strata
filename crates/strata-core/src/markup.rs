@@ -47,8 +47,11 @@ pub struct Rule {
     pub properties: Vec<String>,
     #[serde(skip)]
     sheet: usize,
-    /// Applies only in a state (`:hover`) or to a pseudo-element (`::before`), so it never
-    /// decides the element's own resting style.
+    /// The `@media` query gating the rule, when it can be false (`print`, `(min-width: 40em)`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media: Option<String>,
+    /// Applies only in a state (`:hover`), to a pseudo-element (`::before`) or under a
+    /// [`Rule::media`] query, so it never decides the element's own resting style.
     #[serde(skip)]
     conditional: bool,
 }
@@ -82,6 +85,10 @@ pub struct Markup {
     page_refs: Vec<(String, SheetRef)>,
     /// Per HTML file, `<script src>` values.
     page_scripts: Vec<(String, String)>,
+    /// `@import` targets as written, per importing sheet; resolved into `imports`.
+    import_refs: Vec<(usize, String)>,
+    /// Sheets each sheet imports, in order.
+    imports: std::collections::BTreeMap<usize, Vec<usize>>,
     /// Every indexed script file, for resolving `<script src>`.
     scripts: Vec<String>,
     /// DOM lookups in script files: (script path, caller id, lookup).
@@ -198,12 +205,45 @@ impl Markup {
         let Some(tree) = parser.parse(text, None) else {
             return;
         };
-        let mut stack = vec![tree.root_node()];
-        while let Some(node) = stack.pop() {
+        // (node, the `@media` query it sits under when that query can be false).
+        let mut stack = vec![(tree.root_node(), None::<String>)];
+        while let Some((node, media)) = stack.pop() {
+            if node.kind() == "import_statement" {
+                // `@import "x.css"` / `@import url(x.css) screen`: the first quoted or url() target.
+                let raw = node.utf8_text(text.as_bytes()).unwrap_or_default();
+                let rest = raw.trim_start_matches("@import").trim_start();
+                let rest = rest.strip_prefix("url(").unwrap_or(rest);
+                let target: String = rest
+                    .trim_start_matches(['"', '\''])
+                    .chars()
+                    .take_while(|c| !matches!(c, '"' | '\'' | ')' | ' ' | ';'))
+                    .collect();
+                self.import_refs.push((sheet, target));
+                continue;
+            }
             if node.kind() != "rule_set" {
+                let media = match node.kind() {
+                    "media_statement" => {
+                        let head = node
+                            .named_children(&mut node.walk())
+                            .find(|n| n.kind() == "block")
+                            .map_or(node.end_byte(), |b| b.start_byte());
+                        let query = text[node.start_byte()..head]
+                            .trim_start_matches("@media")
+                            .split_whitespace()
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        // `screen` and `all` hold wherever a page is looked at.
+                        match query.as_str() {
+                            "screen" | "all" => media,
+                            _ => Some(query),
+                        }
+                    }
+                    _ => media,
+                };
                 let mut c = node.walk();
                 let kids: Vec<Node> = node.named_children(&mut c).collect();
-                stack.extend(kids.into_iter().rev());
+                stack.extend(kids.into_iter().rev().map(|k| (k, media.clone())));
                 continue;
             }
             let src = text.as_bytes();
@@ -254,7 +294,8 @@ impl Markup {
                     path: path.to_string(),
                     line: sel.start_position().row + 1 + line_offset,
                     properties: properties.clone(),
-                    conditional: parsed.compounds.iter().any(|c| c.conditional),
+                    conditional: media.is_some() || parsed.compounds.iter().any(|c| c.conditional),
+                    media: media.clone(),
                     sheet,
                 });
             }
@@ -263,6 +304,11 @@ impl Markup {
 
     /// Resolve each page's `<link>` hrefs to indexed stylesheets.
     fn link_pages(&mut self) {
+        for (sheet, href) in std::mem::take(&mut self.import_refs) {
+            let from = self.sheets[sheet].clone();
+            let targets = self.resolve_href(&from, &href);
+            self.imports.entry(sheet).or_default().extend(targets);
+        }
         for (page, r) in std::mem::take(&mut self.page_refs) {
             let ids: Vec<usize> = match r {
                 SheetRef::Inline(id) => vec![id],
@@ -287,11 +333,29 @@ impl Markup {
     /// every indexed stylesheet when it names none (a fragment included elsewhere).
     fn sheets_of(&self, page: &str) -> Vec<usize> {
         match self.pages.get(page) {
-            Some(s) if !s.is_empty() => s.clone(),
+            Some(s) if !s.is_empty() => {
+                let (mut seen, mut out) = (Vec::new(), Vec::new());
+                for &sheet in s {
+                    self.with_imports(sheet, &mut seen, &mut out);
+                }
+                out
+            }
             _ => (0..self.sheets.len())
                 .filter(|&i| is_css(&self.sheets[i]))
                 .collect(),
         }
+    }
+
+    /// `sheet` preceded by what it `@import`s, recursively; `seen` stops repeats and cycles.
+    fn with_imports(&self, sheet: usize, seen: &mut Vec<usize>, out: &mut Vec<usize>) {
+        if seen.contains(&sheet) {
+            return;
+        }
+        seen.push(sheet);
+        for &i in self.imports.get(&sheet).into_iter().flatten() {
+            self.with_imports(i, seen, out);
+        }
+        out.push(sheet);
     }
 
     /// Every rule that can apply to the element(s) starting at `path:line`, in cascade order.
@@ -342,6 +406,34 @@ impl Markup {
                     }
                 }
             }
+            // An inline `style` attribute outranks every rule; only `!important` beats it.
+            let inline = e
+                .attrs
+                .iter()
+                .find(|(k, _)| k == "style")
+                .map(|(_, v)| v.as_str())
+                .filter(|v| !v.contains('{'));
+            for decl in inline.into_iter().flat_map(|v| v.split(';')) {
+                let Some((name, value)) = decl.split_once(':') else {
+                    continue;
+                };
+                let name = name.trim().to_lowercase();
+                let rank = (
+                    value.contains("!important"),
+                    ([u32::MAX; 3], usize::MAX, usize::MAX),
+                );
+                if best.get(&name).is_none_or(|b| rank > *b) {
+                    best.insert(name.clone(), rank);
+                    winners.insert(
+                        name,
+                        Winner {
+                            selector: "style attribute".into(),
+                            path: e.path.clone(),
+                            line: e.line,
+                        },
+                    );
+                }
+            }
             out.push(Cascade {
                 element: e,
                 rules: hits.iter().map(|(ri, _)| &self.rules[*ri]).collect(),
@@ -353,10 +445,16 @@ impl Markup {
 
     /// Pages whose `<script src>` loads `script`, or every page when none does.
     fn pages_loading(&self, script: &str) -> Vec<&str> {
+        let scripts: Vec<&str> = self.scripts.iter().map(String::as_str).collect();
         let loading: Vec<&str> = self
             .page_scripts
             .iter()
-            .filter(|(page, src)| resolve_ref(page, src, &[script]) == [0])
+            // Against every script: a lone candidate would match any file of the same name.
+            .filter(|(page, src)| {
+                resolve_ref(page, src, &scripts)
+                    .iter()
+                    .any(|&i| scripts[i] == script)
+            })
             .map(|(page, _)| page.as_str())
             .collect();
         if loading.is_empty() {
@@ -388,7 +486,14 @@ impl Markup {
             let sel = match &d.selector {
                 Ok(s) => s,
                 Err(expr) => {
-                    r.reason = Some(format!("selector built at runtime: `{expr}`"));
+                    let is_name = expr
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '_' || c == '$');
+                    r.reason = Some(if is_name {
+                        format!("selector is the variable `{expr}`, whose value is not tracked")
+                    } else {
+                        format!("selector built at runtime: `{expr}`")
+                    });
                     out.push(r);
                     continue;
                 }
@@ -532,7 +637,9 @@ impl Markup {
                 ) && self.pages_loading(script).contains(&page)
             })
             .filter_map(|(_, _, d)| d.selector.as_ref().ok())
-            .filter_map(|s| s.strip_prefix('.').map(str::to_string))
+            // Through the parser, so an escaped name (`.sm\:p-2`) reads as the class `sm:p-2`.
+            .filter_map(|s| parse(s))
+            .flat_map(|sel| sel.compounds.into_iter().flat_map(|c| c.classes))
             .collect()
     }
 
@@ -746,21 +853,7 @@ fn resolve_ref(page: &str, href: &str, candidates: &[&str]) -> Vec<usize> {
         return Vec::new();
     }
     let dir = page.rsplit_once('/').map_or("", |(d, _)| d);
-    let mut parts: Vec<&str> = if href.starts_with('/') {
-        Vec::new()
-    } else {
-        dir.split('/').filter(|p| !p.is_empty()).collect()
-    };
-    for seg in href.split('/') {
-        match seg {
-            "" | "." => {}
-            ".." => {
-                parts.pop();
-            }
-            s => parts.push(s),
-        }
-    }
-    let rel = parts.join("/");
+    let rel = crate::lang::join_path(dir, href);
     if let Some(i) = candidates.iter().position(|c| *c == rel) {
         return vec![i];
     }
@@ -906,8 +999,14 @@ fn split_list(s: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut depth = 0i32;
     let mut cur = String::new();
+    let mut escaped = false;
     for ch in s.chars() {
+        if std::mem::take(&mut escaped) {
+            cur.push(ch);
+            continue;
+        }
         match ch {
+            '\\' => escaped = true,
             '(' | '[' => depth += 1,
             ')' | ']' => depth -= 1,
             ',' if depth == 0 => {
@@ -947,8 +1046,14 @@ fn parse(s: &str) -> Option<Selector> {
         cur.clear();
         Some(())
     };
+    let mut escaped = false;
     for ch in s.chars() {
+        if std::mem::take(&mut escaped) {
+            cur.push(ch);
+            continue;
+        }
         match ch {
+            '\\' => escaped = true,
             '(' | '[' => depth += 1,
             ')' | ']' => depth -= 1,
             _ => {}
@@ -994,19 +1099,55 @@ const STATES: &[&str] = &[
 ];
 
 fn is_name_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '-' || c == '_' || c == '\\'
+    c.is_alphanumeric() || c == '-' || c == '_'
+}
+
+/// `a.b` as a CSS identifier: `a\.b`.
+pub fn escape_ident(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars() {
+        if !is_name_char(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 fn parse_compound(s: &str) -> Option<Compound> {
     let mut c = Compound::default();
     let chars: Vec<char> = s.chars().collect();
     let mut i = 0;
+    // An identifier, with CSS escapes decoded: `sm\:p-2` is `sm:p-2`, `\31 0` is `10`.
     let name = |i: &mut usize| -> String {
-        let start = *i;
-        while *i < chars.len() && is_name_char(chars[*i]) {
-            *i += 1;
+        let mut out = String::new();
+        while *i < chars.len() {
+            match chars[*i] {
+                '\\' if *i + 1 < chars.len() => {
+                    let hex: String = chars[*i + 1..]
+                        .iter()
+                        .take(6)
+                        .take_while(|c| c.is_ascii_hexdigit())
+                        .collect();
+                    if hex.is_empty() {
+                        out.push(chars[*i + 1]);
+                        *i += 2;
+                    } else {
+                        out.extend(u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32));
+                        *i += 1 + hex.len();
+                        if chars.get(*i) == Some(&' ') {
+                            *i += 1;
+                        }
+                    }
+                }
+                c if is_name_char(c) => {
+                    out.push(c);
+                    *i += 1;
+                }
+                _ => break,
+            }
         }
-        chars[start..*i].iter().collect()
+        out
     };
     while i < chars.len() {
         match chars[i] {
@@ -1081,7 +1222,7 @@ fn parse_compound(s: &str) -> Option<Compound> {
                     }
                 }
             }
-            ch if is_name_char(ch) => c.tag = Some(name(&mut i).to_lowercase()),
+            ch if is_name_char(ch) || ch == '\\' => c.tag = Some(name(&mut i).to_lowercase()),
             _ => return None,
         }
     }

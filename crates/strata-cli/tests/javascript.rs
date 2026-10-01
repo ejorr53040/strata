@@ -89,3 +89,11 @@ fn chains_rooted_in_a_browser_global_are_external_with_arguments_elided() {
         assert!(lines.contains(&want.to_string()), "missing {want}: {lines:#?}");
     }
 }
+
+#[test]
+fn extensionless_imports_resolve_inside_dotted_directories() {
+    assert_eq!(
+        run(&["callees", "web.v1.2.main.run"]),
+        vec!["resolved web.v1.2.main.run -> web.v1.2.util.f web/v1.2/main.js:2"]
+    );
+}

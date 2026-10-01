@@ -191,6 +191,26 @@ static PYTHON: python::Python = python::Python;
 static RUST: rust::Rust = rust::Rust;
 static JAVASCRIPT: javascript::Javascript = javascript::Javascript;
 
+/// `rel` resolved against the directory `dir`, both repo-relative with `/` separators: `.`
+/// and `..` segments collapse, and a root-relative `rel` (`/static/x.css`) ignores `dir`.
+pub fn join_path(dir: &str, rel: &str) -> String {
+    let mut parts: Vec<&str> = if rel.starts_with('/') {
+        Vec::new()
+    } else {
+        dir.split('/').filter(|p| !p.is_empty()).collect()
+    };
+    for seg in rel.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            s => parts.push(s),
+        }
+    }
+    parts.join("/")
+}
+
 pub fn for_path(rel_path: &str) -> Option<&'static dyn Language> {
     let ext = rel_path.rsplit_once('.')?.1;
     [&PYTHON as &dyn Language, &RUST, &JAVASCRIPT]

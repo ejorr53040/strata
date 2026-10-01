@@ -14,7 +14,12 @@ impl Language for Javascript {
 
     /// `web/util.js` → `web.util`; `web/index.js` is the directory's module, like `__init__.py`.
     fn module_name(&self, rel_path: &str) -> String {
-        let stem = rel_path.rsplit_once('.').map_or(rel_path, |(s, _)| s);
+        // Only the file name has an extension: `v1.2/util` is extensionless.
+        let file_start = rel_path.rfind('/').map_or(0, |i| i + 1);
+        let stem = match rel_path[file_start..].rfind('.') {
+            Some(i) => &rel_path[..file_start + i],
+            None => rel_path,
+        };
         let stem = stem.strip_suffix("/index").unwrap_or(stem);
         let stem = if stem == "index" { "" } else { stem };
         stem.replace('/', ".")
@@ -215,13 +220,17 @@ impl State<'_> {
             "querySelector" | "querySelectorAll" | "closest" | "matches" if !on_class_list => {
                 |s| s.trim().to_string()
             }
-            "getElementById" if !on_class_list => |s| format!("#{}", s.trim()),
-            "getElementsByClassName" if !on_class_list => {
-                |s| s.split_whitespace().map(|c| format!(".{c}")).collect()
+            "getElementById" if !on_class_list => {
+                |s| format!("#{}", crate::markup::escape_ident(s.trim()))
             }
+            "getElementsByClassName" if !on_class_list => |s| {
+                s.split_whitespace()
+                    .map(|c| format!(".{}", crate::markup::escape_ident(c)))
+                    .collect()
+            },
             "getElementsByTagName" if !on_class_list => |s| s.trim().to_lowercase(),
             "add" | "remove" | "toggle" | "contains" | "replace" if on_class_list => {
-                |s| format!(".{}", s.trim())
+                |s| format!(".{}", crate::markup::escape_ident(s.trim()))
             }
             _ => return,
         };
@@ -357,17 +366,7 @@ impl State<'_> {
         if !spec.starts_with('.') {
             return spec.to_string();
         }
-        let mut parts: Vec<&str> = self.dir.split('/').filter(|p| !p.is_empty()).collect();
-        for seg in spec.split('/') {
-            match seg {
-                "." | "" => {}
-                ".." => {
-                    parts.pop();
-                }
-                s => parts.push(s),
-            }
-        }
-        Javascript.module_name(&parts.join("/"))
+        Javascript.module_name(&super::join_path(&self.dir, spec))
     }
 
     /// Records a definition named by `name` and walks `node`'s body inside its scope.

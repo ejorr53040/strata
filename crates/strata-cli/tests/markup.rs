@@ -97,8 +97,11 @@ fn unused_selectors_match_nothing_on_any_page_that_loads_them() {
     assert_eq!(
         call("unused_selectors", json!({})),
         json!([
+            // `extra.css` reaches imp/index.html through main.css's `@import`, so `.x` is used.
+            {"selector": ".y", "path": "imp/main.css", "line": 2},
             {"selector": ".unused", "path": "site/base.css", "line": 4},
-            // `.card` exists, but no page links orphan.css.
+            // `.card` exists, but no page links orphan.css. `admin/app.js` adds `unused`, but
+            // only on the admin page, which does not load base.css.
             {"selector": ".card", "path": "site/orphan.css", "line": 1},
         ])
     );
@@ -122,10 +125,10 @@ fn selector_refs_link_literal_dom_selectors_to_elements_and_rules() {
         "site/theme.css:4 .card:hover",
         "site/theme.css:5 .card.open",
     ];
-    let runtime = |line: usize, call: &str, expr: &str| {
+    let runtime = |line: usize, call: &str, reason: &str| {
         json!({
             "caller": "site.app.wire", "call": call, "selector": null, "state": "unresolved",
-            "reason": format!("selector built at runtime: `{expr}`"),
+            "reason": reason,
             "path": "site/app.js", "line": line, "elements": [], "rules": []
         })
     };
@@ -160,8 +163,16 @@ fn selector_refs_link_literal_dom_selectors_to_elements_and_rules() {
                 &["site/index.html:13", "site/index.html:16"],
                 &["site/base.css:5 div > .title", "site/index.html:7 .title"]
             ),
-            runtime(5, "querySelector", "'.' + name"),
-            runtime(6, "getElementsByClassName", "name"),
+            runtime(
+                5,
+                "querySelector",
+                "selector built at runtime: `'.' + name`"
+            ),
+            runtime(
+                6,
+                "getElementsByClassName",
+                "selector is the variable `name`, whose value is not tracked"
+            ),
         ])
     );
 }
@@ -171,6 +182,21 @@ fn pages_list_what_each_page_loads_and_names() {
     assert_eq!(
         call("pages", json!({})),
         json!([{
+            "path": "admin/index.html",
+            "stylesheets": ["admin/admin.css"],
+            "inline_styles": 0,
+            "scripts": ["admin/app.js"],
+            "ids": ["a.b"],
+            "classes": ["m", "panel", "sm:p-2"],
+        }, {
+            // An imported sheet comes before the sheet importing it.
+            "path": "imp/index.html",
+            "stylesheets": ["imp/extra.css", "imp/main.css"],
+            "inline_styles": 0,
+            "scripts": [],
+            "ids": [],
+            "classes": ["x"],
+        }, {
             "path": "site/index.html",
             "stylesheets": ["site/base.css", "site/theme.css"],
             "inline_styles": 1,
@@ -187,6 +213,10 @@ fn stylesheets_list_rules_and_mark_the_unused() {
     assert_eq!(
         call("stylesheets", json!({})),
         json!([
+            {"path": "admin/admin.css", "rules": [r(".panel", 1, false), r(".sm\\:p-2", 2, false), r(".is\\:on", 3, false),
+                r(".m", 4, false), r(".m", 5, false), r(".m", 6, false)]},
+            {"path": "imp/extra.css", "rules": [r(".x", 1, false)]},
+            {"path": "imp/main.css", "rules": [r(".y", 2, true)]},
             {"path": "site/base.css", "rules": [
                 r("p", 1, false), r(".card", 2, false), r("#main .card", 3, false),
                 r(".card.wide", 4, false), r(".unused", 4, true), r("div > .title", 5, false),
@@ -199,5 +229,43 @@ fn stylesheets_list_rules_and_mark_the_unused() {
             // A `<style>` block is listed under its page.
             {"path": "site/index.html", "rules": [r(".title", 7, false)]},
         ])
+    );
+}
+
+#[test]
+fn escaped_characters_in_selectors_and_ids_match_literally() {
+    let p = json!({"path": "admin/index.html", "line": 4, "tag": "p", "id": "a.b", "classes": ["sm:p-2"]});
+    assert_eq!(
+        call("matched_elements", json!({"selector": ".sm\\:p-2"})),
+        json!([p])
+    );
+    let refs = call("selector_refs", json!({"path": "admin/app.js"}));
+    let by_id = refs
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["call"] == "getElementById")
+        .unwrap();
+    assert_eq!(by_id["selector"], "#a\\.b");
+    assert_eq!(by_id["elements"], json!(["admin/index.html:4"]));
+}
+
+#[test]
+fn inline_style_beats_normal_rules_and_media_gated_rules_never_win() {
+    assert_eq!(
+        call("matching_rules", json!({"element": "admin/index.html:5"})),
+        json!([{
+            "element": {"path": "admin/index.html", "line": 5, "tag": "p", "id": null, "classes": ["m"]},
+            "rules": [
+                rule("admin/admin.css", 4, ".m", [0, 1, 0], &["color"]),
+                {"selector": ".m", "specificity": [0, 1, 0], "path": "admin/admin.css", "line": 5,
+                 "properties": ["padding"], "media": "print"},
+                rule("admin/admin.css", 6, ".m", [0, 1, 0], &["margin !important"]),
+            ],
+            "winners": {
+                "color": win("admin/index.html", 5, "style attribute"),
+                "margin": win("admin/admin.css", 6, ".m"),
+            }
+        }])
     );
 }
