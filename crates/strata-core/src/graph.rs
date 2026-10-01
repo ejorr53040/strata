@@ -260,6 +260,10 @@ impl Index<'_> {
     }
 
     fn lookup(&self, module: &str, name: &str) -> Lookup {
+        self.lookup_in(module, name, 0)
+    }
+
+    fn lookup_in(&self, module: &str, name: &str, depth: usize) -> Lookup {
         let (lang, facts, _) = &self.modules[module];
         if !name.contains('.') && self.symbols.contains_key(&qualify(module, name)) {
             return Lookup::Def(qualify(module, name));
@@ -297,6 +301,13 @@ impl Index<'_> {
             }
             if self.modules.contains_key(&full) {
                 return Lookup::Module(full);
+            }
+            // A glob also brings in what that module itself imports (`use super::*`).
+            if depth < 4 && self.modules.contains_key(&imp.module) {
+                let l = self.lookup_in(&imp.module, name, depth + 1);
+                if !matches!(l, Lookup::Missing) {
+                    return l;
+                }
             }
         }
         if lang.is_builtin(name) {
@@ -610,6 +621,10 @@ impl Index<'_> {
             return Some(Outcome::Resolved(vec![main]));
         }
         let segs: Vec<&str> = expr.split('.').collect();
+        if segs[0] == "_" && segs.len() > 1 {
+            // A receiver whose type we do not know.
+            return Some(self.by_member_name(lang, segs[segs.len() - 1]));
+        }
         if let Some(id) = enclosing.and_then(|e| self.local_def(module, e, segs[0])) {
             return Some(self.resolve_from(lang, Lookup::Def(id), &segs[1..], true));
         }

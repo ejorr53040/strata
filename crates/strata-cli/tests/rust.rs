@@ -475,3 +475,15 @@ fn visibility_on_modules_and_types_in_item_macros_are_references() {
         &"resolved[type] shapes.<module> -> shapes.Gauge shapes/src/lib.rs:118".to_string()
     ));
 }
+
+#[test]
+fn nothing_in_the_fixture_is_left_unresolved() {
+    let v: Vec<serde_json::Value> =
+        serde_json::from_str(&run(&["call", "edges", "{}"]).join("")).unwrap();
+    let bad: Vec<String> = v
+        .iter()
+        .filter(|e| e["state"] == "unresolved")
+        .map(|e| format!("{} {} {} {}", e["kind"], e["path"], e["line"], e["callee"]))
+        .collect();
+    assert!(bad.is_empty(), "unresolved edges: {bad:#?}");
+}

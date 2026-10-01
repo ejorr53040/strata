@@ -82,8 +82,49 @@ impl Language for Rust {
 
 /// Prelude items and std crates: always in scope, never indexed.
 const BUILTINS: &[&str] = &[
-    "std", "core", "alloc", "Some", "None", "Ok", "Err", "Box", "String", "Vec", "Option",
-    "Result", "Default", "From", "Into", "ToString", "Clone", "Iterator", "drop", "panic",
+    "std",
+    "core",
+    "alloc",
+    "Some",
+    "None",
+    "Ok",
+    "Err",
+    "Box",
+    "String",
+    "Vec",
+    "Option",
+    "Result",
+    "Default",
+    "From",
+    "Into",
+    "ToString",
+    "Clone",
+    "Iterator",
+    "drop",
+    "panic",
+    "Fn",
+    "FnMut",
+    "FnOnce",
+    "Drop",
+    "PartialEq",
+    "PartialOrd",
+    "Eq",
+    "Ord",
+    "Copy",
+    "Send",
+    "Sync",
+    "Sized",
+    "Unpin",
+    "IntoIterator",
+    "Extend",
+    "AsRef",
+    "AsMut",
+    "TryFrom",
+    "TryInto",
+    "FromIterator",
+    "DoubleEndedIterator",
+    "ExactSizeIterator",
+    "ToOwned",
 ];
 
 #[derive(Clone, Copy, PartialEq)]
@@ -507,7 +548,7 @@ impl State<'_> {
                 .is_some_and(|n| n.id() == node.id())
         });
         let name = self.text(node);
-        if is_def_name || self.is_generic(&name) {
+        if is_def_name || name == "_" || self.is_generic(&name) {
             return;
         }
         self.push_ref(name, self.line(node), EdgeKind::Type);
@@ -594,6 +635,9 @@ impl State<'_> {
     }
 
     fn type_def(&mut self, node: Node, kind: DefKind) {
+        if self.name_of(node) == "_" {
+            return; // `const _: () = ..;` names nothing
+        }
         let qualname = self.qualify(&self.name_of(node));
         self.facts.defs.push(Def {
             qualname,
@@ -946,16 +990,13 @@ impl State<'_> {
                 i += 1;
                 continue;
             }
-            if k.kind() != "identifier" {
+            if !is_name_token(k) {
                 i += 1;
                 continue;
             }
             let mut parts = vec![self.text(k)];
             let mut j = i;
-            while j + 2 < kids.len()
-                && kids[j + 1].kind() == "::"
-                && kids[j + 2].kind() == "identifier"
-            {
+            while j + 2 < kids.len() && kids[j + 1].kind() == "::" && is_name_token(kids[j + 2]) {
                 parts.push(self.text(kids[j + 2]));
                 j += 2;
             }
@@ -1096,6 +1137,11 @@ fn strip_generics(s: &str) -> String {
     out.replace("::::", "::")
         .trim_start_matches("::")
         .to_string()
+}
+
+/// In a macro's token tree `i64` is a primitive type token, not an identifier.
+fn is_name_token(n: Node) -> bool {
+    matches!(n.kind(), "identifier" | "primitive_type")
 }
 
 /// `x`, `self`, `self.a.b`: receivers we can name. Anything else (calls, indexing) is unknown.

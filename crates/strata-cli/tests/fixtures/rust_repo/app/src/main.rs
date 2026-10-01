@@ -156,3 +156,26 @@ fn json_field(config: Cfg2) {
         "b": 1,
     });
 }
+
+struct Guard2;
+
+impl Drop for Guard2 {
+    fn drop(&mut self) {}
+}
+
+fn takes_fn<F: Fn(i32) -> i32>(f: F) -> i32 {
+    f(1)
+}
+
+const _: () = ();
+
+fn infer() {
+    let _v: Vec<_> = Vec::new();
+}
+
+struct Cfg {
+    kernel_image_path: String,
+    boot_args: String,
+    field: i32,
+    n: i32,
+}
