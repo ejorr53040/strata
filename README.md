@@ -33,6 +33,8 @@ number and the chart below; see [Metrics](CLAUDE.md#metrics) for when to run it.
 
 | Run | Rev | What changed | Symbol recall | Call-site recall | Target recall | False external | Unresolved | Review findings (std / spec / correctness) |
 | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| 1 | `c46e806` | tools + resolver fixes | 100.0% | 99.5% | 96.2% | 7 | 0 | – |
+| 1 | `b81eed0` | first Rust plugin | 100.0% | 100.0% | 90.5% | 7 | 991 | – |
+| 2 | `c46e806` | agent tools + resolver fixes (reviewed) | 100.0% | 99.5% | 97.5% | 7 | 0 | 31 (11 / 11 / 9) |
+| 3 | `a924027` | crate-root mods + match-guard fixes | 100.0% | 100.0% | 100.0% | 0 | 0 | – |
 
 <!-- metrics:end -->

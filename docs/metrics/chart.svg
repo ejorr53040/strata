@@ -1,16 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 500" width="760" height="500" role="img" aria-labelledby="t d">
 <title id="t">strata self-analysis: recall and review findings per run</title>
-<desc id="d">1 runs. Recall of symbols, call sites and call targets against rust-analyzer, and code-review finding counts. Values are in the table below the chart.</desc>
+<desc id="d">3 runs. Recall of symbols, call sites and call targets against rust-analyzer, and code-review finding counts. Values are in the table below the chart.</desc>
 <style>
-:root{--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--grid:#e4e3df;--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--bar:#2a78d6}
-@media (prefers-color-scheme:dark){:root{--surface:#1a1a19;--ink:#fff;--ink2:#c3c2b7;--grid:#34332f;--s1:#3987e5;--s2:#d95926;--s3:#199e70;--bar:#3987e5}}
-text{font:12px system-ui,sans-serif;fill:var(--ink2)} .h{font-weight:600;fill:var(--ink);font-size:13px}
-.grid{stroke:var(--grid);stroke-width:1} .ln{fill:none;stroke-width:2;stroke-linejoin:round}
-.s1{stroke:var(--s1)} .s2{stroke:var(--s2)} .s3{stroke:var(--s3)}
-.d1{fill:var(--s1)} .d2{fill:var(--s2)} .d3{fill:var(--s3)} .dot{stroke:var(--surface);stroke-width:2}
-.bar{fill:var(--bar)} .v{fill:var(--ink);font-weight:600}
+.bg{fill:#fcfcfb} text{font:12px system-ui,sans-serif;fill:#52514e} .h{font-weight:600;fill:#0b0b0b;font-size:13px}
+.v{fill:#0b0b0b;font-weight:600} .grid{stroke:#e4e3df;stroke-width:1} .ln{fill:none;stroke-width:2;stroke-linejoin:round}
+.s1{stroke:#2a78d6} .s2{stroke:#eb6834} .s3{stroke:#1baf7a}
+.d1{fill:#2a78d6} .d2{fill:#eb6834} .d3{fill:#1baf7a} .dot{stroke:#fcfcfb;stroke-width:2} .bar{fill:#2a78d6}
+@media (prefers-color-scheme:dark){.bg{fill:#1a1a19} text{fill:#c3c2b7} .h,.v{fill:#fff} .grid{stroke:#34332f}
+.s1{stroke:#3987e5} .s2{stroke:#d95926} .s3{stroke:#199e70} .d1{fill:#3987e5} .d2{fill:#d95926} .d3{fill:#199e70}
+.dot{stroke:#1a1a19} .bar{fill:#3987e5}}
 </style>
-<rect width="760" height="500" fill="var(--surface)"/>
+<rect class="bg" width="760" height="500"/>
 <text class="h" x="64" y="26">Recall vs rust-analyzer (%, higher is better)</text>
 <line class="ln s1" x1="64" x2="82" y1="46" y2="46"/>
 <text x="88" y="50">Symbols</text>
@@ -19,27 +19,40 @@ text{font:12px system-ui,sans-serif;fill:var(--ink2)} .h{font-weight:600;fill:va
 <line class="ln s3" x1="292" x2="310" y1="46" y2="46"/>
 <text x="316" y="50">Targets</text>
 <line class="grid" x1="64" x2="640" y1="230.0" y2="230.0"/>
-<text x="56" y="234.0" text-anchor="end">90</text>
-<line class="grid" x1="64" x2="640" y1="198.0" y2="198.0"/>
-<text x="56" y="202.0" text-anchor="end">92</text>
+<text x="56" y="234.0" text-anchor="end">80</text>
+<line class="grid" x1="64" x2="640" y1="190.0" y2="190.0"/>
+<text x="56" y="194.0" text-anchor="end">85</text>
 <line class="grid" x1="64" x2="640" y1="150.0" y2="150.0"/>
-<text x="56" y="154.0" text-anchor="end">95</text>
-<line class="grid" x1="64" x2="640" y1="118.0" y2="118.0"/>
-<text x="56" y="122.0" text-anchor="end">97</text>
+<text x="56" y="154.0" text-anchor="end">90</text>
+<line class="grid" x1="64" x2="640" y1="110.0" y2="110.0"/>
+<text x="56" y="114.0" text-anchor="end">95</text>
 <line class="grid" x1="64" x2="640" y1="70.0" y2="70.0"/>
 <text x="56" y="74.0" text-anchor="end">100</text>
-<polyline class="ln s1" points="352.0,70.0"/>
-<circle class="dot d1" cx="352.0" cy="70.0" r="4"><title>run 1 (c46e806): Symbols recall 100.0%</title></circle>
-<polyline class="ln s2" points="352.0,78.8"/>
-<circle class="dot d2" cx="352.0" cy="78.8" r="4"><title>run 1 (c46e806): Call sites recall 99.5%</title></circle>
-<polyline class="ln s3" points="352.0,131.6"/>
-<circle class="dot d3" cx="352.0" cy="131.6" r="4"><title>run 1 (c46e806): Targets recall 96.2%</title></circle>
-<text x="652" y="74.0">Symbols 100.0%</text>
-<text x="652" y="88.0">Call sites 99.5%</text>
-<text x="652" y="135.6">Targets 96.2%</text>
+<polyline class="ln s1" points="64.0,70.0 352.0,70.0 640.0,70.0"/>
+<circle class="dot d1" cx="64.0" cy="70.0" r="4"><title>run 1 (b81eed0): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="352.0" cy="70.0" r="4"><title>run 2 (c46e806): Symbols recall 100.0%</title></circle>
+<circle class="dot d1" cx="640.0" cy="70.0" r="4"><title>run 3 (a924027): Symbols recall 100.0%</title></circle>
+<polyline class="ln s2" points="64.0,70.0 352.0,74.4 640.0,70.0"/>
+<circle class="dot d2" cx="64.0" cy="70.0" r="4"><title>run 1 (b81eed0): Call sites recall 100.0%</title></circle>
+<circle class="dot d2" cx="352.0" cy="74.4" r="4"><title>run 2 (c46e806): Call sites recall 99.5%</title></circle>
+<circle class="dot d2" cx="640.0" cy="70.0" r="4"><title>run 3 (a924027): Call sites recall 100.0%</title></circle>
+<polyline class="ln s3" points="64.0,145.7 352.0,89.8 640.0,70.0"/>
+<circle class="dot d3" cx="64.0" cy="145.7" r="4"><title>run 1 (b81eed0): Targets recall 90.5%</title></circle>
+<circle class="dot d3" cx="352.0" cy="89.8" r="4"><title>run 2 (c46e806): Targets recall 97.5%</title></circle>
+<circle class="dot d3" cx="640.0" cy="70.0" r="4"><title>run 3 (a924027): Targets recall 100.0%</title></circle>
+<text x="652" y="74.0">Call sites 100.0%</text>
+<text x="652" y="88.0">Symbols 100.0%</text>
+<text x="652" y="102.0">Targets 100.0%</text>
 <text class="h" x="64" y="274">Code-review findings per run (lower is better)</text>
 <line class="grid" x1="64" x2="640" y1="430" y2="430"/>
-<text x="352.0" y="424" text-anchor="middle">n/a</text>
-<text x="352.0" y="450" text-anchor="middle">run 1</text>
+<text x="64.0" y="424" text-anchor="middle">n/a</text>
+<rect class="bar" x="336.0" y="318.0" width="32" height="112.0" rx="4"><title>run 2 (c46e806): 31 findings — standards 11, spec 11, correctness 9</title></rect>
+<text class="v" x="352.0" y="313.0" text-anchor="middle">31</text>
+<text x="640.0" y="424" text-anchor="middle">n/a</text>
+<text x="64.0" y="450" text-anchor="middle">run 1</text>
+<text x="64.0" y="466" text-anchor="middle">b81eed0</text>
+<text x="352.0" y="450" text-anchor="middle">run 2</text>
 <text x="352.0" y="466" text-anchor="middle">c46e806</text>
+<text x="640.0" y="450" text-anchor="middle">run 3</text>
+<text x="640.0" y="466" text-anchor="middle">a924027</text>
 </svg>
