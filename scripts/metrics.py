@@ -419,7 +419,12 @@ def depth_scores(root, symbols, edges, defs, refs):
     return {
         "defs": {c: {"total": def_tot[c], "found": def_hit[c]} for c in DEF_CATS},
         "refs": {
-            c: {"total": ref_tot[c], "seen": seen_n[c], "right": right_n[c]}
+            c: {
+                "total": ref_tot[c],
+                "seen": seen_n[c],
+                "right": right_n[c],
+                "exact": right_n[c] if c.startswith("impl_") else exact_n[c],
+            }
             for c in REF_CATS
         },
         "summary": {
@@ -758,8 +763,8 @@ SERIES = [
 ]
 DEPTH_SERIES = [
     ("defs", "Definitions", "s1"),
-    ("refs_seen", "References seen", "s2"),
-    ("refs_right", "References right", "s3"),
+    ("refs_right", "References right", "s2"),
+    ("refs_exact", "References exact", "s3"),
 ]
 
 
