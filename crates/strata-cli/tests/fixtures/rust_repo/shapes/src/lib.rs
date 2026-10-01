@@ -114,3 +114,5 @@ pub fn read(g: &Gauge) -> f64 {
 pub fn via_inline() {
     util::inline_tests::t();
 }
+
+nix::ioctl_readwrite_bad!(tun_rw, 0x54, Gauge);

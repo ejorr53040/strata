@@ -508,15 +508,18 @@ impl Index<'_> {
         }
     }
 
-    /// An item defined inside an enclosing function (`static N` in `fn f`), found by name.
+    /// An item defined inside an enclosing function or inline module (`static N` in `fn f`,
+    /// `const K` in `mod tests`), found by name.
     fn local_def(&self, module: &str, enclosing: &str, name: &str) -> Option<String> {
         let mut scope = enclosing;
         loop {
-            let is_fn = self
-                .symbols
-                .get(&qualify(module, scope))
-                .is_some_and(|s| matches!(s.kind, DefKind::Function | DefKind::Method));
-            if is_fn {
+            let is_scope = self.symbols.get(&qualify(module, scope)).is_some_and(|s| {
+                matches!(
+                    s.kind,
+                    DefKind::Function | DefKind::Method | DefKind::Module
+                )
+            });
+            if is_scope {
                 let id = qualify(module, &format!("{scope}.{name}"));
                 if self.symbols.contains_key(&id) {
                     return Some(id);

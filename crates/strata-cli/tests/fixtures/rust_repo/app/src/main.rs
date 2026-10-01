@@ -134,3 +134,25 @@ struct Args2 {
 fn tuple_pat() {
     let _f = |Tup(x)| x;
 }
+
+struct Wrap {
+    inner: shapes::Gauge,
+}
+
+fn inner() {}
+
+fn shorthand_local(w: Wrap) {
+    let Wrap { inner } = w;
+    let _l = inner.level;
+}
+
+struct Cfg2 {
+    n_vcpus: u32,
+}
+
+fn json_field(config: Cfg2) {
+    let _j = serde_json::json!({
+        "kernel_image_path": config.n_vcpus,
+        "b": 1,
+    });
+}

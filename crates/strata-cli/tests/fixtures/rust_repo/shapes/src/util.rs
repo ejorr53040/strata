@@ -16,7 +16,11 @@ pub(crate) fn hidden() {}
 mod inline_tests {
     use super::*;
 
+    const K: f64 = 1.0;
+
     fn t() {
-        square(2.0);
+        square(K);
     }
 }
+
+pub(crate) mod vis_mod {}

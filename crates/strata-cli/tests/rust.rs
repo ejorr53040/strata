@@ -439,3 +439,39 @@ fn attribute_arguments_may_hold_arbitrary_paths_and_tuple_struct_patterns_are_ty
         &"resolved[type] app.main.tuple_pat -> app.main.Tup app/src/main.rs:135".to_string()
     ));
 }
+
+// Depth round 6: the long tail found on cirrocumulus.
+
+#[test]
+fn shorthand_pattern_bindings_are_locals_even_when_a_function_has_their_name() {
+    assert!(refs("shapes.Gauge.level").contains(
+        &"candidate[field] app.main.shorthand_local -> shapes.Gauge.level app/src/main.rs:146"
+            .to_string()
+    ));
+}
+
+#[test]
+fn field_accesses_inside_unparseable_macros_are_found() {
+    assert!(refs("app.main.Cfg2.n_vcpus").contains(
+        &"candidate[field] app.main.json_field -> app.main.Cfg2.n_vcpus app/src/main.rs:155"
+            .to_string()
+    ));
+}
+
+#[test]
+fn items_inside_inline_modules_resolve_from_that_module() {
+    assert_eq!(
+        refs("shapes.util.inline_tests.K"),
+        vec!["resolved[value] shapes.util.inline_tests.t -> shapes.util.inline_tests.K shapes/src/util.rs:22"]
+    );
+}
+
+#[test]
+fn visibility_on_modules_and_types_in_item_macros_are_references() {
+    assert!(refs("shapes").contains(
+        &"resolved[path] shapes.util.<module> -> shapes shapes/src/util.rs:26".to_string()
+    ));
+    assert!(refs("shapes.Gauge").contains(
+        &"resolved[type] shapes.<module> -> shapes.Gauge shapes/src/lib.rs:118".to_string()
+    ));
+}

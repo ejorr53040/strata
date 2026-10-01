@@ -627,7 +627,7 @@ impl State<'_> {
     /// Every name a pattern inside this function binds (over-approximate: ignores block scope).
     fn collect_locals(&self, func: Node) -> HashSet<String> {
         fn idents(n: Node, src: &[u8], out: &mut HashSet<String>) {
-            if n.kind() == "identifier" {
+            if matches!(n.kind(), "identifier" | "shorthand_field_identifier") {
                 out.insert(n.utf8_text(src).unwrap_or_default().to_string());
             }
             // `Some(x) if guard(x)`: the guard is an expression, not a binding.
@@ -692,6 +692,13 @@ impl State<'_> {
         let name_line = node
             .child_by_field_name("name")
             .map_or(self.line(node), |n| self.line(n));
+        let mut c = node.walk();
+        let vis = node
+            .children(&mut c)
+            .find(|n| n.kind() == "visibility_modifier");
+        if let Some(v) = vis {
+            self.visibility(v);
+        }
         match node.child_by_field_name("body") {
             Some(body) => {
                 let q = self.qualify(&name);
@@ -960,6 +967,8 @@ impl State<'_> {
             if i >= 1 && kids[i - 1].kind() == "." {
                 if called {
                     self.push_call(format!("_.{}", parts[0]), line);
+                } else {
+                    self.push_ref(format!("_.{}", parts[0]), line, EdgeKind::Field);
                 }
             } else if called {
                 self.path_refs(&segs, self.line(k), line, None);
@@ -1009,6 +1018,8 @@ impl State<'_> {
             line: self.line(node),
             bases: Vec::new(),
         });
+        // The remaining arguments may name types (`ioctl_read!(name, 0x54, 1, Config)`).
+        self.scan_tokens(tt);
         true
     }
 
