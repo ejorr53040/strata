@@ -17,6 +17,18 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ConfigCmd,
     },
+    /// Call sites that target a symbol (resolved and candidate edges)
+    Callers {
+        symbol: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Call sites inside a symbol, with each edge's state
+    Callees {
+        symbol: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Find symbols by name substring
     Symbols {
         query: String,
@@ -54,6 +66,16 @@ fn effective_config(
     strata_core::config::resolve(&layers)
 }
 
+fn print_edges(edges: Vec<&strata_core::graph::Edge>, json: bool) {
+    if json {
+        println!("{}", serde_json::to_string(&edges).unwrap());
+    } else {
+        for e in edges {
+            println!("{}", e.to_line());
+        }
+    }
+}
+
 fn main() {
     if let Err(e) = run() {
         eprintln!("error: {e}");
@@ -71,6 +93,14 @@ fn run() -> Result<(), String> {
             for (k, e) in effective_config(&root, &cli.set)? {
                 println!("{k} = {} ({})", e.value, e.source.label());
             }
+        }
+        Cmd::Callers { symbol, json } => {
+            let graph = strata_core::graph::build(&strata_core::graph::load(&root), &[]);
+            print_edges(graph.callers(&symbol), json);
+        }
+        Cmd::Callees { symbol, json } => {
+            let graph = strata_core::graph::build(&strata_core::graph::load(&root), &[]);
+            print_edges(graph.callees(&symbol), json);
         }
         Cmd::Symbols { query, json } => {
             let syms = strata_core::index::symbols(&root, &query);
