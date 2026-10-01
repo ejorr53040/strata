@@ -45,6 +45,7 @@ number and the chart below; see [Metrics](CLAUDE.md#metrics) for when to run it.
 | 10 | `fe13479` | JS plugin + shared globals + external-rooted chains | 100.0% | 100.0% | 99.9% | 1 | 2 | – |
 | 11 | `35ccb60` | HTML/CSS markup index; walker indexes html/css | 100.0% | 100.0% | 99.9% | 1 | 2 | – |
 | 12 | `2dd0724` | DOM-JS linking (selector_refs) | 100.0% | 100.0% | 99.9% | 1 | 2 | – |
+| 13 | `e6fbfdf` | pages + stylesheets tools | 100.0% | 100.0% | 99.9% | 1 | 2 | – |
 
 
 <!-- metrics:end -->
@@ -80,8 +81,9 @@ The same scoring on a repository outside strata. Run 1 is strata's first look at
 | 19 | `fe13479` | `a8cf4eb` | JS plugin + shared globals + external-rooted chains | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
 | 20 | `35ccb60` | `a8cf4eb` | HTML/CSS markup index; walker indexes html/css | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
 | 21 | `2dd0724` | `a8cf4eb` | DOM-JS linking (selector_refs) | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
+| 22 | `e6fbfdf` | `a8cf4eb` | pages + stylesheets tools | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
 
-Latest run (`2dd0724`) by connection type. *seen*: strata recorded a connection at that spot; *right*: and its targets include the correct definition.
+Latest run (`e6fbfdf`) by connection type. *seen*: strata recorded a connection at that spot; *right*: and its targets include the correct definition.
 
 | Connection | Total | Seen | Right | Exact |
 | --- | ---: | ---: | ---: | ---: |
