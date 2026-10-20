@@ -2,8 +2,8 @@
 //! (`strata tools` / `strata call`) and, later, the MCP server and `strata ask`.
 //! Every tool takes a JSON object and returns JSON, so a model can call it directly.
 
+use crate::snapshot::Snapshot;
 use crate::walk::WalkOptions;
-use crate::{graph, index, walk};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -114,70 +114,54 @@ pub fn catalog() -> Vec<Value> {
 
 /// Run one tool against the repo at `root`. Errors are plain strings meant for the caller
 /// (a human or a model) to act on.
+/// One-shot: index `root` and run one tool. Long-lived callers keep a [`Snapshot`] instead.
 pub fn call(root: &Path, opts: &WalkOptions, name: &str, args: &Value) -> Result<Value, String> {
+    Snapshot::build(root, opts).call(name, args)
+}
+
+pub(crate) fn dispatch(snap: &Snapshot, name: &str, args: &Value) -> Result<Value, String> {
     let str_arg = |key: &str| -> Result<&str, String> {
         args.get(key)
             .and_then(Value::as_str)
             .ok_or_else(|| format!("tool `{name}` requires a string argument `{key}`"))
     };
+    let g = snap.graph();
+    let m = &snap.markup;
     match name {
-        "overview" => Ok(overview(root, opts)),
-        "symbols" => Ok(json!(index::symbols_with(root, str_arg("query")?, opts))),
-        "callers" => {
-            let g = graph::build(&graph::load_with(root, opts), &[]);
-            Ok(json!(g.callers(str_arg("symbol")?)))
-        }
-        "callees" => {
-            let g = graph::build(&graph::load_with(root, opts), &[]);
-            Ok(json!(g.callees(str_arg("symbol")?)))
-        }
+        "overview" => Ok(overview(snap)),
+        "symbols" => Ok(json!(snap.symbols(str_arg("query")?))),
+        "callers" => Ok(json!(g.callers(str_arg("symbol")?))),
+        "callees" => Ok(json!(g.callees(str_arg("symbol")?))),
         "map" => {
             let level = args.get("level").and_then(Value::as_u64).map(|l| l as u8);
             let budget = args
                 .get("budget_tokens")
                 .and_then(Value::as_u64)
                 .map(|b| b as usize);
-            Ok(json!(crate::map::summary(&crate::map::build(
-                root, opts, level, budget
-            ))))
+            Ok(json!(crate::map::summary(&snap.map(level, budget))))
         }
-        "matched_elements" => {
-            let m = markup(root, opts);
-            Ok(json!(m.matched_elements(str_arg("selector")?)))
-        }
+        "matched_elements" => Ok(json!(m.matched_elements(str_arg("selector")?))),
         "matching_rules" => {
             let element = str_arg("element")?;
             let (path, line) = element
                 .rsplit_once(':')
                 .and_then(|(p, l)| Some((p, l.parse::<usize>().ok()?)))
                 .ok_or_else(|| format!("`element` must be `path:line`, got `{element}`"))?;
-            let m = markup(root, opts);
             Ok(json!(m.matching_rules(path, line)))
         }
-        "unused_selectors" => Ok(json!(markup(root, opts).unused_selectors())),
-        "selector_refs" => {
-            let m = markup(root, opts);
-            Ok(json!(
-                m.selector_refs(args.get("path").and_then(Value::as_str))
-            ))
-        }
-        "pages" => Ok(json!(markup(root, opts).pages())),
-        "stylesheets" => Ok(json!(markup(root, opts).stylesheets())),
-        "references" => {
-            let g = graph::build(&graph::load_with(root, opts), &[]);
-            Ok(json!(g.references(str_arg("symbol")?)))
-        }
-        "edges" => Ok(json!(
-            graph::build(&graph::load_with(root, opts), &[]).edges
+        "unused_selectors" => Ok(json!(m.unused_selectors())),
+        "selector_refs" => Ok(json!(
+            m.selector_refs(args.get("path").and_then(Value::as_str))
         )),
-        "unindexed_files" => {
-            let w = walk::walk(root, opts);
-            Ok(json!(w
-                .unindexed
-                .iter()
-                .map(|s| json!({"path": s.rel, "reason": s.reason.label()}))
-                .collect::<Vec<_>>()))
-        }
+        "pages" => Ok(json!(m.pages())),
+        "stylesheets" => Ok(json!(m.stylesheets())),
+        "references" => Ok(json!(g.references(str_arg("symbol")?))),
+        "edges" => Ok(json!(g.edges)),
+        "unindexed_files" => Ok(json!(snap
+            .unindexed()
+            .iter()
+            .map(|s| json!({"path": s.rel, "reason": s.reason.label()}))
+            .collect::<Vec<_>>())),
         _ => Err(format!(
             "unknown tool `{name}`; available: {}",
             catalog()
@@ -189,24 +173,18 @@ pub fn call(root: &Path, opts: &WalkOptions, name: &str, args: &Value) -> Result
     }
 }
 
-fn overview(root: &Path, opts: &WalkOptions) -> Value {
-    let w = walk::walk(root, opts);
-    let sources = graph::load_with(root, opts);
+fn overview(snap: &Snapshot) -> Value {
     let mut symbols: BTreeMap<&str, usize> = BTreeMap::new();
-    for s in index::symbols_with(root, "", opts) {
+    for s in &snap.symbols {
         *symbols.entry(s.kind).or_default() += 1;
     }
     let mut edges: BTreeMap<&str, usize> = BTreeMap::new();
-    for e in &graph::build(&sources, &[]).edges {
+    for e in &snap.graph().edges {
         *edges.entry(e.state.label()).or_default() += 1;
     }
     json!({
-        "files": {"indexed": w.indexed.len(), "unindexed": w.unindexed.len()},
+        "files": {"indexed": snap.indexed_files(), "unindexed": snap.unindexed().len()},
         "symbols": symbols,
         "edges": edges,
     })
-}
-
-fn markup(root: &Path, opts: &WalkOptions) -> crate::markup::Markup {
-    crate::markup::build(&graph::load_with(root, opts))
 }
