@@ -1,4 +1,7 @@
+mod client;
+
 use clap::{Parser, Subcommand};
+use serde_json::json;
 
 #[derive(Parser)]
 #[command(name = "strata", version)]
@@ -67,6 +70,11 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// The per-repo daemon that holds the index (started by the first query)
+    Daemon {
+        #[command(subcommand)]
+        cmd: DaemonCmd,
+    },
     /// Send one message to the model provider and stream the reply (checks key + connectivity)
     Smoke {
         #[arg(default_value = "Say hello in five words.")]
@@ -121,6 +129,14 @@ fn smoke(
 }
 
 #[derive(Subcommand)]
+enum DaemonCmd {
+    /// Whether a daemon runs for this repo: pid, indexed files, index age
+    Status,
+    /// Stop this repo's daemon (the next query starts a fresh one)
+    Stop,
+}
+
+#[derive(Subcommand)]
 enum ConfigCmd {
     /// Print effective config with where each value came from
     Show,
@@ -136,7 +152,7 @@ fn config_home() -> std::path::PathBuf {
 fn effective_config(
     root: &std::path::Path,
     set: &[String],
-) -> Result<std::collections::BTreeMap<String, strata_core::config::Entry>, String> {
+) -> Result<std::collections::BTreeMap<String, strata_config::Entry>, String> {
     let flags = set
         .iter()
         .map(|s| {
@@ -145,33 +161,23 @@ fn effective_config(
                 .ok_or_else(|| format!("--set expects KEY=VALUE, got `{s}`"))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let layers = strata_core::config::load(&config_home(), root, std::env::vars(), flags)?;
-    strata_core::config::resolve(&layers)
+    let layers = strata_config::load(&config_home(), root, std::env::vars(), flags)?;
+    strata_config::resolve(&layers)
 }
 
-fn walk_options(
+/// The effective `index.include`, which picks the daemon's snapshot.
+fn include(root: &std::path::Path, set: &[String]) -> Result<String, String> {
+    Ok(effective_config(root, set)?["index.include"].value.clone())
+}
+
+fn query(
     root: &std::path::Path,
     set: &[String],
-) -> Result<strata_core::walk::WalkOptions, String> {
-    let cfg = effective_config(root, set)?;
-    Ok(strata_core::walk::WalkOptions::from_config_value(
-        &cfg["index.include"].value,
-    ))
-}
-
-fn graph_of(root: &std::path::Path, set: &[String]) -> Result<strata_core::graph::Graph, String> {
-    let sources = strata_core::graph::load_with(root, &walk_options(root, set)?);
-    Ok(strata_core::graph::build(&sources, &[]))
-}
-
-fn print_edges(edges: Vec<&strata_core::graph::Edge>, json: bool) {
-    if json {
-        println!("{}", serde_json::to_string(&edges).unwrap());
-    } else {
-        for e in edges {
-            println!("{}", e.to_line());
-        }
-    }
+    cmd: &str,
+    args: serde_json::Value,
+) -> Result<(), String> {
+    print!("{}", client::query(root, &include(root, set)?, cmd, args)?);
+    Ok(())
 }
 
 fn main() {
@@ -184,11 +190,12 @@ fn main() {
 fn run() -> Result<(), String> {
     let cli = Cli::parse();
     let root = std::env::current_dir().map_err(|e| e.to_string())?;
+    let set = &cli.set;
     match cli.cmd {
         Cmd::Config {
             cmd: ConfigCmd::Show,
         } => {
-            for (k, e) in effective_config(&root, &cli.set)? {
+            for (k, e) in effective_config(&root, set)? {
                 println!("{k} = {} ({})", e.value, e.source.label());
             }
         }
@@ -196,52 +203,43 @@ fn run() -> Result<(), String> {
             if !unindexed {
                 return Err("only `files --unindexed` is supported for now".into());
             }
-            for s in strata_core::walk::walk(&root, &walk_options(&root, &cli.set)?).unindexed {
-                println!("unindexed {} {}", s.rel, s.reason.label());
-            }
+            query(&root, set, "files_unindexed", json!({}))?
         }
-        Cmd::Callers { symbol, json } => {
-            let graph = graph_of(&root, &cli.set)?;
-            print_edges(graph.callers(&symbol), json);
-        }
+        Cmd::Callers { symbol, json } => query(
+            &root,
+            set,
+            "callers",
+            json!({"symbol": symbol, "json": json}),
+        )?,
         Cmd::Refs { symbol, json } => {
-            let graph = graph_of(&root, &cli.set)?;
-            print_edges(graph.references(&symbol), json);
+            query(&root, set, "refs", json!({"symbol": symbol, "json": json}))?
         }
-        Cmd::Callees { symbol, json } => {
-            let graph = graph_of(&root, &cli.set)?;
-            print_edges(graph.callees(&symbol), json);
-        }
-        Cmd::Smoke { prompt, model } => smoke(&root, &cli.set, &prompt, model)?,
-        Cmd::Tools => println!(
-            "{}",
-            serde_json::to_string_pretty(&strata_core::tools::catalog()).unwrap()
-        ),
+        Cmd::Callees { symbol, json } => query(
+            &root,
+            set,
+            "callees",
+            json!({"symbol": symbol, "json": json}),
+        )?,
+        Cmd::Smoke { prompt, model } => smoke(&root, set, &prompt, model)?,
+        Cmd::Tools => query(&root, set, "tools", json!({}))?,
         Cmd::Map { level, budget } => {
-            let opts = walk_options(&root, &cli.set)?;
-            print!(
-                "{}",
-                strata_core::map::build(&root, &opts, level, budget).text
-            );
+            query(&root, set, "map", json!({"level": level, "budget": budget}))?
         }
         Cmd::Guide => print!("{}", include_str!("../../../docs/agents/using-strata.md")),
         Cmd::Call { tool, args } => {
             let args: serde_json::Value =
                 serde_json::from_str(&args).map_err(|e| format!("arguments are not JSON: {e}"))?;
-            let opts = walk_options(&root, &cli.set)?;
-            let out = strata_core::tools::call(&root, &opts, &tool, &args)?;
-            println!("{}", serde_json::to_string(&out).unwrap());
+            query(&root, set, "call", json!({"tool": tool, "args": args}))?
         }
-        Cmd::Symbols { query, json } => {
-            let opts = walk_options(&root, &cli.set)?;
-            let syms = strata_core::index::symbols_with(&root, &query, &opts);
-            if json {
-                println!("{}", serde_json::to_string(&syms).unwrap());
-            } else {
-                for s in syms {
-                    println!("{} {} {}:{}", s.kind, s.name, s.path, s.line);
-                }
-            }
+        Cmd::Symbols { query: q, json } => {
+            query(&root, set, "symbols", json!({"query": q, "json": json}))?
+        }
+        Cmd::Daemon { cmd } => {
+            let cmd = match cmd {
+                DaemonCmd::Status => "status",
+                DaemonCmd::Stop => "stop",
+            };
+            print!("{}", client::control(&root, &include(&root, set)?, cmd)?);
         }
     }
     Ok(())

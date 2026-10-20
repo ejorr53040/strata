@@ -1,8 +1,9 @@
+mod common;
+
 use std::path::PathBuf;
-use std::process::Command;
 
 fn run(args: &[&str]) -> Vec<String> {
-    let out = Command::new(env!("CARGO_BIN_EXE_strata"))
+    let out = common::strata()
         .args(args)
         .current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/web_repo"))
         .output()

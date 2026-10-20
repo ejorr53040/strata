@@ -1,9 +1,10 @@
+mod common;
+
 use serde_json::{json, Value};
 use std::path::PathBuf;
-use std::process::Command;
 
 fn call(tool: &str, args: Value) -> Value {
-    let out = Command::new(env!("CARGO_BIN_EXE_strata"))
+    let out = common::strata()
         .args(["call", tool, &args.to_string()])
         .current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/web_repo"))
         .output()

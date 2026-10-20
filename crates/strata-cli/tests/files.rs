@@ -1,10 +1,12 @@
+mod common;
+
 use std::fs;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 
 fn strata(repo: &Path, args: &[&str]) -> Output {
     let xdg = repo.join("_xdg");
-    Command::new(env!("CARGO_BIN_EXE_strata"))
+    common::strata()
         .args(args)
         .current_dir(repo)
         .env("XDG_CONFIG_HOME", xdg)

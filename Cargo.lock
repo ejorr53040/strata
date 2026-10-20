@@ -589,6 +589,7 @@ dependencies = [
  "clap",
  "serde_json",
  "strata-agent",
+ "strata-config",
  "strata-core",
  "tempfile",
 ]

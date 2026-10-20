@@ -1,8 +1,10 @@
+mod common;
+
 use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::process::Output;
 
 fn strata(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_strata"))
+    common::strata()
         .args(args)
         .current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rust_repo"))
         .output()
