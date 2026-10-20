@@ -41,8 +41,17 @@ impl Paths {
             .canonicalize()
             .map_err(|e| format!("{}: {e}", root.display()))?;
         let name = format!("{:016x}", fnv1a(root.as_os_str().as_encoded_bytes()));
+        let socket = dir.join(format!("{name}.sock"));
+        // sockaddr_un holds 108 bytes, NUL included.
+        let len = socket.as_os_str().len();
+        if len > 107 {
+            return Err(format!(
+                "XDG_RUNTIME_DIR is too long for a Unix socket path ({len} bytes, limit 107): {}",
+                socket.display()
+            ));
+        }
         Ok(Paths {
-            socket: dir.join(format!("{name}.sock")),
+            socket,
             lock: dir.join(format!("{name}.lock")),
             log: dir.join(format!("{name}.log")),
             root,

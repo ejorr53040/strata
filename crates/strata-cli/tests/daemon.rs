@@ -283,3 +283,21 @@ fn concurrent_cold_queries_start_one_daemon() {
     }
     assert_eq!(install.daemons(), 1);
 }
+
+#[test]
+fn a_runtime_dir_too_long_for_a_socket_is_named_in_the_error() {
+    let rt = Runtime::new();
+    let long = rt.0.path().join("x".repeat(100));
+    std::fs::create_dir_all(&long).unwrap();
+    let out = common::strata_in_runtime(&long)
+        .args(["symbols", "helper"])
+        .current_dir(fixture("call_repo"))
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("XDG_RUNTIME_DIR") && err.contains("too long"),
+        "{err}"
+    );
+}
