@@ -18,14 +18,7 @@ pub fn symbols(root: &Path, query: &str) -> Vec<Symbol> {
 
 /// Like [`symbols`], with explicit walk options (e.g. `index.include`).
 pub fn symbols_with(root: &Path, query: &str, opts: &WalkOptions) -> Vec<Symbol> {
-    let sources: Vec<crate::graph::Source> = crate::walk::walk(root, opts)
-        .indexed
-        .into_iter()
-        .map(|f| crate::graph::Source {
-            path: f.rel,
-            text: f.text,
-        })
-        .collect();
+    let sources = crate::graph::load_with(root, opts);
     filter(&all(&sources), query)
 }
 

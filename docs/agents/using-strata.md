@@ -70,8 +70,8 @@ The first query in a directory starts a background daemon for it (socket under
 `$XDG_RUNTIME_DIR/strata/`) that keeps the index in memory, so later queries take
 milliseconds. Edits to indexed files are picked up on the next query; a *new* file is only
 seen after `strata daemon stop` (the next query starts a fresh daemon). `strata daemon
-status` shows the pid, file count and index age. `STRATA_DAEMON_IDLE_SECS=N` makes daemons
-started from that environment exit after N idle seconds.
+status` shows the pid, build, file count and index age. A daemon exits after
+`daemon.idle_timeout_secs` (default 600; 0 = never) without queries.
 
 ## Limits
 

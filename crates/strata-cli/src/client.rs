@@ -3,7 +3,7 @@
 
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -11,6 +11,14 @@ use std::time::{Duration, Instant};
 
 /// How long a freshly spawned daemon gets to start listening.
 const SPAWN_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The config values a daemon request depends on.
+pub struct Settings {
+    /// `index.include`: picks the daemon's snapshot.
+    pub include: String,
+    /// `daemon.idle_timeout_secs`: passed to a daemon this client starts.
+    pub idle_timeout_secs: String,
+}
 
 enum Reply {
     Ok(String),
@@ -37,6 +45,9 @@ impl Paths {
             .mode(0o700)
             .create(&dir)
             .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+        // `mode` only applies when the directory is new.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| format!("{}: {e}", dir.display()))?;
         let root = root
             .canonicalize()
             .map_err(|e| format!("{}: {e}", root.display()))?;
@@ -72,18 +83,18 @@ fn daemon_exe() -> Result<PathBuf, String> {
 }
 
 /// Run `cmd` against `root`'s daemon, starting (or replacing) the daemon as needed. Returns
-/// the text to print.
-pub fn query(root: &Path, include: &str, cmd: &str, args: Value) -> Result<String, String> {
+/// the text to print. `settings` is the effective config.
+pub fn query(root: &Path, settings: &Settings, cmd: &str, args: Value) -> Result<String, String> {
     let paths = Paths::of(root)?;
     let exe = daemon_exe()?;
     let build = strata_config::build_id(&exe)?;
-    let req = json!({"build": build, "include": include, "cmd": cmd, "args": args});
+    let req = json!({"build": build, "include": settings.include, "cmd": cmd, "args": args});
     // A daemon may exit between our connect and its reply (stale build, idle exit): retry.
     for _ in 0..3 {
         match send(&paths.socket, &req) {
             Some(Reply::Ok(text)) => return Ok(text),
             Some(Reply::Err(e)) => return Err(e),
-            Some(Reply::StaleBuild) | None => spawn(&paths, &exe)?,
+            Some(Reply::StaleBuild) | None => spawn(&paths, &exe, &settings.idle_timeout_secs)?,
         }
     }
     Err(format!(
@@ -122,7 +133,7 @@ fn send(socket: &Path, req: &Value) -> Option<Reply> {
 
 /// Start the daemon unless another client already did. The lock makes concurrent cold
 /// queries start exactly one.
-fn spawn(paths: &Paths, exe: &Path) -> Result<(), String> {
+fn spawn(paths: &Paths, exe: &Path, idle_timeout_secs: &str) -> Result<(), String> {
     let lock =
         std::fs::File::create(&paths.lock).map_err(|e| format!("{}: {e}", paths.lock.display()))?;
     lock.lock()
@@ -133,12 +144,13 @@ fn spawn(paths: &Paths, exe: &Path) -> Result<(), String> {
     let log = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
+        .mode(0o600)
         .open(&paths.log)
         .map_err(|e| format!("{}: {e}", paths.log.display()))?;
-    let _ = std::fs::set_permissions(&paths.log, std::fs::Permissions::from_mode(0o600));
     let mut child = std::process::Command::new(exe)
         .arg(&paths.root)
         .arg(&paths.socket)
+        .arg(idle_timeout_secs)
         .stdin(std::process::Stdio::null())
         .stdout(log.try_clone().map_err(|e| e.to_string())?)
         .stderr(log)

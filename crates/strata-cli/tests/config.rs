@@ -1,12 +1,10 @@
-mod common;
-
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::process::Output;
+use std::process::{Command, Output};
 
 fn strata(repo: &Path, xdg: &Path, env: &[(&str, &str)], args: &[&str]) -> Output {
-    common::strata()
+    Command::new(env!("CARGO_BIN_EXE_strata"))
         .args(args)
         .current_dir(repo)
         .env("XDG_CONFIG_HOME", xdg)

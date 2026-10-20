@@ -1,5 +1,6 @@
 //! Per-repo daemon: holds the index in memory and answers `strata` clients over a Unix
-//! socket. Started by the client (`strata-daemon <root> <socket>`), never by hand.
+//! socket. Started by the client (`strata-daemon <root> <socket> <idle-secs>`), never by
+//! hand; `idle-secs` is the effective `daemon.idle_timeout_secs` (0: never exit when idle).
 //!
 //! Protocol: one request per connection, one JSON line each way.
 //! Request `{"build", "include", "cmd", "args"}`; reply `{"ok": text}`, `{"err": message}`,
@@ -12,6 +13,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use strata_core::graph::Edge;
@@ -27,14 +29,20 @@ struct Daemon {
     build: String,
     snapshots: Mutex<HashMap<String, (Arc<Snapshot>, Instant)>>,
     last_request: Mutex<Instant>,
+    /// Requests being answered; the daemon never exits idle while one is open.
+    in_flight: AtomicUsize,
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let [_, root, socket] = &args[..] else {
-        eprintln!("usage: strata-daemon <root> <socket>");
+    let [_, root, socket, idle] = &args[..] else {
+        eprintln!("usage: strata-daemon <root> <socket> <idle-secs>");
         std::process::exit(2);
     };
+    let idle: u64 = idle.parse().unwrap_or_else(|_| {
+        eprintln!("idle-secs must be a whole number of seconds, got `{idle}`");
+        std::process::exit(2);
+    });
     let exe = std::env::current_exe().expect("own executable path");
     let daemon = Arc::new(Daemon {
         root: root.into(),
@@ -42,6 +50,7 @@ fn main() {
         build: strata_config::build_id(&exe).expect("own executable is readable"),
         snapshots: Mutex::default(),
         last_request: Mutex::new(Instant::now()),
+        in_flight: AtomicUsize::new(0),
     });
     // The client holds the spawn lock, so whatever is at the path is a dead daemon's socket.
     let _ = std::fs::remove_file(&daemon.socket);
@@ -51,14 +60,12 @@ fn main() {
     });
     std::fs::set_permissions(&daemon.socket, std::fs::Permissions::from_mode(0o600))
         .expect("restrict socket to its owner");
-    if let Some(idle) = std::env::var("STRATA_DAEMON_IDLE_SECS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-    {
+    if idle > 0 {
         let d = daemon.clone();
         std::thread::spawn(move || loop {
             std::thread::sleep(Duration::from_millis(250));
-            if d.last_request.lock().unwrap().elapsed() > Duration::from_secs(idle) {
+            let quiet = d.last_request.lock().unwrap().elapsed() > Duration::from_secs(idle);
+            if quiet && d.in_flight.load(Ordering::SeqCst) == 0 {
                 d.exit();
             }
         });
@@ -78,7 +85,13 @@ impl Daemon {
     }
 
     fn serve(&self, stream: UnixStream) {
+        self.in_flight.fetch_add(1, Ordering::SeqCst);
+        self.answer(stream);
         *self.last_request.lock().unwrap() = Instant::now();
+        self.in_flight.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    fn answer(&self, stream: UnixStream) {
         let mut line = String::new();
         if BufReader::new(&stream).read_line(&mut line).is_err() {
             return;
@@ -95,7 +108,6 @@ impl Daemon {
         if exit {
             self.exit();
         }
-        *self.last_request.lock().unwrap() = Instant::now();
     }
 
     /// The reply, and whether the daemon exits once it is sent.
@@ -127,7 +139,11 @@ impl Daemon {
             ),
             None => " (not indexed yet)".into(),
         };
-        format!("running pid={}{index}\n", std::process::id())
+        format!(
+            "running pid={} build={}{index}\n",
+            std::process::id(),
+            self.build
+        )
     }
 
     /// The snapshot for `include`, rebuilt if any indexed file changed since it was built.

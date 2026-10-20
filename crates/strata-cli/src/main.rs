@@ -165,9 +165,12 @@ fn effective_config(
     strata_config::resolve(&layers)
 }
 
-/// The effective `index.include`, which picks the daemon's snapshot.
-fn include(root: &std::path::Path, set: &[String]) -> Result<String, String> {
-    Ok(effective_config(root, set)?["index.include"].value.clone())
+fn settings(root: &std::path::Path, set: &[String]) -> Result<client::Settings, String> {
+    let cfg = effective_config(root, set)?;
+    Ok(client::Settings {
+        include: cfg["index.include"].value.clone(),
+        idle_timeout_secs: cfg["daemon.idle_timeout_secs"].value.clone(),
+    })
 }
 
 fn query(
@@ -176,7 +179,7 @@ fn query(
     cmd: &str,
     args: serde_json::Value,
 ) -> Result<(), String> {
-    print!("{}", client::query(root, &include(root, set)?, cmd, args)?);
+    print!("{}", client::query(root, &settings(root, set)?, cmd, args)?);
     Ok(())
 }
 
@@ -239,7 +242,10 @@ fn run() -> Result<(), String> {
                 DaemonCmd::Status => "status",
                 DaemonCmd::Stop => "stop",
             };
-            print!("{}", client::control(&root, &include(&root, set)?, cmd)?);
+            print!(
+                "{}",
+                client::control(&root, &settings(&root, set)?.include, cmd)?
+            );
         }
     }
     Ok(())

@@ -112,9 +112,8 @@ pub fn catalog() -> Vec<Value> {
     ]
 }
 
-/// Run one tool against the repo at `root`. Errors are plain strings meant for the caller
-/// (a human or a model) to act on.
 /// One-shot: index `root` and run one tool. Long-lived callers keep a [`Snapshot`] instead.
+/// Errors are plain strings meant for the caller (a human or a model) to act on.
 pub fn call(root: &Path, opts: &WalkOptions, name: &str, args: &Value) -> Result<Value, String> {
     Snapshot::build(root, opts).call(name, args)
 }
@@ -125,11 +124,14 @@ pub(crate) fn dispatch(snap: &Snapshot, name: &str, args: &Value) -> Result<Valu
             .and_then(Value::as_str)
             .ok_or_else(|| format!("tool `{name}` requires a string argument `{key}`"))
     };
-    let g = snap.graph();
+    let g = &snap.graph;
     let m = &snap.markup;
     match name {
         "overview" => Ok(overview(snap)),
-        "symbols" => Ok(json!(snap.symbols(str_arg("query")?))),
+        "symbols" => Ok(json!(crate::index::filter(
+            &snap.symbols,
+            str_arg("query")?
+        ))),
         "callers" => Ok(json!(g.callers(str_arg("symbol")?))),
         "callees" => Ok(json!(g.callees(str_arg("symbol")?))),
         "map" => {
@@ -158,7 +160,7 @@ pub(crate) fn dispatch(snap: &Snapshot, name: &str, args: &Value) -> Result<Valu
         "references" => Ok(json!(g.references(str_arg("symbol")?))),
         "edges" => Ok(json!(g.edges)),
         "unindexed_files" => Ok(json!(snap
-            .unindexed()
+            .unindexed
             .iter()
             .map(|s| json!({"path": s.rel, "reason": s.reason.label()}))
             .collect::<Vec<_>>())),
@@ -179,11 +181,11 @@ fn overview(snap: &Snapshot) -> Value {
         *symbols.entry(s.kind).or_default() += 1;
     }
     let mut edges: BTreeMap<&str, usize> = BTreeMap::new();
-    for e in &snap.graph().edges {
+    for e in &snap.graph.edges {
         *edges.entry(e.state.label()).or_default() += 1;
     }
     json!({
-        "files": {"indexed": snap.indexed_files(), "unindexed": snap.unindexed().len()},
+        "files": {"indexed": snap.sources.len(), "unindexed": snap.unindexed.len()},
         "symbols": symbols,
         "edges": edges,
     })

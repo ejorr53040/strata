@@ -12,7 +12,7 @@ pub fn strata() -> Command {
 pub fn strata_in_runtime(runtime: &Path) -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_strata"));
     c.env("XDG_RUNTIME_DIR", runtime)
-        .env("STRATA_DAEMON_IDLE_SECS", "5");
+        .env("STRATA_DAEMON_IDLE_TIMEOUT_SECS", "5");
     c
 }
 

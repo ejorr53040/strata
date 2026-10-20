@@ -9,12 +9,17 @@ pub const FNS: usize = 30;
 /// Write `MODULES` Python modules (`pkg.mI`) and `MODULES` Rust modules (`gen.mI`), each
 /// with `FNS` functions that call into a neighbouring module. Returns the line count.
 pub fn write(root: &Path) -> usize {
+    write_modules(root, MODULES)
+}
+
+/// [`write`] with `modules` modules per language.
+pub fn write_modules(root: &Path, modules: usize) -> usize {
     std::fs::create_dir_all(root.join("pkg")).unwrap();
     std::fs::create_dir_all(root.join("gen/src")).unwrap();
     let mut lines = 0;
     let mut lib = String::new();
-    for i in 0..MODULES {
-        let j = (i * 7 + 3) % MODULES;
+    for i in 0..modules {
+        let j = (i * 7 + 3) % modules;
         let (mut py, mut rs) = (String::new(), String::new());
         for k in 0..FNS {
             writeln!(py, "from pkg.m{j} import f{j}_{k}").unwrap();

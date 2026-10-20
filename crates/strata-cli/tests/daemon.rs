@@ -217,7 +217,7 @@ impl Install {
             .args(args)
             .current_dir(repo)
             .env("XDG_RUNTIME_DIR", rt.0.path())
-            .env("STRATA_DAEMON_IDLE_SECS", "5")
+            .env("STRATA_DAEMON_IDLE_TIMEOUT_SECS", "5")
             .output()
             .unwrap()
     }
@@ -300,4 +300,27 @@ fn a_runtime_dir_too_long_for_a_socket_is_named_in_the_error() {
         err.contains("XDG_RUNTIME_DIR") && err.contains("too long"),
         "{err}"
     );
+}
+
+#[path = "../../strata-core/tests/support/big_repo.rs"]
+#[allow(dead_code)]
+mod big_repo;
+
+#[test]
+fn an_index_build_longer_than_the_idle_timeout_still_answers() {
+    let rt = Runtime::new();
+    let repo = tempfile::tempdir().unwrap();
+    big_repo::write_modules(repo.path(), 60);
+    let out = common::strata_in_runtime(rt.0.path())
+        .env("STRATA_DAEMON_IDLE_TIMEOUT_SECS", "1")
+        .args(["callers", "pkg.m0.f0_0"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!out.stdout.is_empty());
 }
