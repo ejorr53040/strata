@@ -1,0 +1,1 @@
+[{"kind":"module","line":1,"name":"pkg.shapes","path":"pkg/shapes.py"},{"kind":"function","line":1,"name":"area","path":"pkg/shapes.py"},{"kind":"class","line":5,"name":"Circle","path":"pkg/shapes.py"},{"kind":"method","line":6,"name":"Circle.radius","path":"pkg/shapes.py"},{"kind":"method","line":9,"name":"Circle.diameter","path":"pkg/shapes.py"}]
