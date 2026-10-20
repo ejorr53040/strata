@@ -577,7 +577,7 @@ name = "strata-agent"
 version = "0.1.0"
 dependencies = [
  "serde_json",
- "strata-core",
+ "strata-config",
  "tempfile",
  "ureq",
 ]
@@ -594,13 +594,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-config"
+version = "0.1.0"
+dependencies = [
+ "toml",
+]
+
+[[package]]
 name = "strata-core"
 version = "0.1.0"
 dependencies = [
  "ignore",
  "serde",
  "serde_json",
- "toml",
+ "strata-config",
+ "tempfile",
  "tree-sitter",
  "tree-sitter-css",
  "tree-sitter-html",

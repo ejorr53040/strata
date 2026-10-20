@@ -15,7 +15,7 @@ pub fn resolve_api_key(
     if let Some((_, v)) = env.find(|(k, v)| k == "ANTHROPIC_API_KEY" && !v.is_empty()) {
         return Ok(v);
     }
-    let creds = strata_core::config::read_credentials(config_home)?;
+    let creds = strata_config::read_credentials(config_home)?;
     match creds.get("anthropic_api_key").and_then(|v| v.as_str()) {
         Some(k) if !k.is_empty() => Ok(k.to_string()),
         _ => Err("no Anthropic API key: set ANTHROPIC_API_KEY or add \

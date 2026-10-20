@@ -1,4 +1,4 @@
-pub mod config;
+pub use strata_config as config;
 pub mod graph;
 pub mod index;
 pub mod lang;
