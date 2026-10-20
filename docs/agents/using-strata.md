@@ -64,6 +64,15 @@ but never win a property. Classes a page's scripts add with `classList.add/toggl
 present for `unused_selectors`, but elements built from HTML strings (`innerHTML`) are not in
 the index, so check a listed selector before deleting it.
 
+## The daemon
+
+The first query in a directory starts a background daemon for it (socket under
+`$XDG_RUNTIME_DIR/strata/`) that keeps the index in memory, so later queries take
+milliseconds. Edits to indexed files are picked up on the next query; a *new* file is only
+seen after `strata daemon stop` (the next query starts a fresh daemon). `strata daemon
+status` shows the pid, file count and index age. `STRATA_DAEMON_IDLE_SECS=N` makes daemons
+started from that environment exit after N idle seconds.
+
 ## Limits
 
 - JavaScript: classic `<script>` files (no `import`/`export`) share one global scope, so a

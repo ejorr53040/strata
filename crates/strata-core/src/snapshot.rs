@@ -12,13 +12,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
+/// Maps built so far, by (level, budget).
+type MapCache = Mutex<HashMap<(Option<u8>, Option<usize>), Arc<Map>>>;
+
 pub struct Snapshot {
     pub(crate) sources: Vec<graph::Source>,
     pub(crate) unindexed: Vec<Skipped>,
     pub(crate) symbols: Vec<Symbol>,
     pub(crate) graph: Graph,
     pub(crate) markup: Markup,
-    maps: Mutex<HashMap<(Option<u8>, Option<usize>), Arc<Map>>>,
+    maps: MapCache,
     /// (file, size, mtime) of every indexed file, for [`Snapshot::is_stale`].
     stamps: Vec<(PathBuf, Option<(u64, SystemTime)>)>,
 }
