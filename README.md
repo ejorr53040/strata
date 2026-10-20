@@ -47,6 +47,7 @@ number and the chart below; see [Metrics](CLAUDE.md#metrics) for when to run it.
 | 12 | `2dd0724` | DOM-JS linking (selector_refs) | 100.0% | 100.0% | 99.9% | 1 | 2 | – |
 | 13 | `e6fbfdf` | pages + stylesheets tools | 100.0% | 100.0% | 99.9% | 1 | 2 | – |
 | 14 | `f81ce40` | code-review fixes (web languages) | 100.0% | 100.0% | 99.9% | 1 | 2 | 21 (11 / 8 / 2) |
+| 15 | `561be67` | daemon + thin client (reviewed) | 100.0% | 100.0% | 100.0% | 0 | 4 | 20 (8 / 10 / 2) |
 
 
 <!-- metrics:end -->
@@ -84,8 +85,9 @@ The same scoring on a repository outside strata. Run 1 is strata's first look at
 | 21 | `2dd0724` | `a8cf4eb` | DOM-JS linking (selector_refs) | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
 | 22 | `e6fbfdf` | `a8cf4eb` | pages + stylesheets tools | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
 | 23 | `f81ce40` | `a8cf4eb` | code-review fixes (web languages) | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
+| 24 | `561be67` | `a8cf4eb` | daemon + thin client | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
 
-Latest run (`f81ce40`) by connection type. *seen*: strata recorded a connection at that spot; *right*: and its targets include the correct definition.
+Latest run (`561be67`) by connection type. *seen*: strata recorded a connection at that spot; *right*: and its targets include the correct definition.
 
 | Connection | Total | Seen | Right | Exact |
 | --- | ---: | ---: | ---: | ---: |
