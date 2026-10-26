@@ -1,0 +1,5 @@
+.card { color: red; }
+p { font-weight: normal !important; }
+.card { padding: 2px; }
+.card:hover { padding: 9px; }
+.card.open { color: gold; }

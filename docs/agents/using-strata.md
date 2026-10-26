@@ -1,6 +1,6 @@
 # Using strata to analyze code
 
-strata is a compiler-backed code index (Python and Rust today). Use it instead of grepping
+strata is a compiler-backed code index (Python, Rust and JavaScript, plus HTML/CSS). Use it instead of grepping
 when you need to know what defines, calls or depends on something. Run it from the repo
 root; every tool returns JSON.
 
@@ -44,7 +44,41 @@ strata guide                          # print this document
 unknown type (`x.run()`) list every indexed method named `run`. Standard-library methods
 (`vec.push()`) show up as `unresolved`; that is expected, not a bug.
 
+## HTML and CSS
+
+Markup has its own index:
+
+- `pages` and `stylesheets`: what each page loads and names, and every rule by sheet.
+- `matched_elements`: the elements a selector can hit.
+- `matching_rules`: the cascade for one element, given as `path:line` of its start tag, with
+  each property's winner.
+- `unused_selectors`: rules that match nothing on the pages that load them.
+- `selector_refs`: JavaScript DOM lookups (`querySelector`, `getElementById`, `classList.*`)
+  linked to the elements and rules they reach.
+
+A page's rules are the stylesheets it links (relative, root or Jinja `url_for(.., filename=..)`
+hrefs), what those `@import`, and its `<style>` blocks, in document order; a page that names
+none gets every stylesheet. An inline `style` attribute outranks normal rules. Rules under a
+state (`:hover`), a pseudo-element or an `@media` query other than `screen`/`all` are listed
+but never win a property. Classes a page's scripts add with `classList.add/toggle` count as
+present for `unused_selectors`, but elements built from HTML strings (`innerHTML`) are not in
+the index, so check a listed selector before deleting it.
+
+## The daemon
+
+The first query in a directory starts a background daemon for it (socket under
+`$XDG_RUNTIME_DIR/strata/`) that keeps the index in memory, so later queries take
+milliseconds. Edits to indexed files are picked up on the next query; a *new* file is only
+seen after `strata daemon stop` (the next query starts a fresh daemon). `strata daemon
+status` shows the pid, build, file count and index age. A daemon exits after
+`daemon.idle_timeout_secs` (default 600; 0 = never) without queries.
+
 ## Limits
+
+- JavaScript: classic `<script>` files (no `import`/`export`) share one global scope, so a
+  bare call finds a function in any of them (several definitions read `candidate`). Method
+  calls on values of unknown type are `unresolved`; chains rooted in a browser global
+  (`document.querySelector(..).remove()`) are `external`.
 
 - Rust macros are re-parsed as argument lists, so calls inside `format!(..)` are found but
   macro-generated items are not. `use a::*` imports are not followed.

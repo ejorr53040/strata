@@ -1,8 +1,9 @@
+mod common;
+
 use std::path::PathBuf;
-use std::process::Command;
 
 fn map(args: &[&str]) -> String {
-    let out = Command::new(env!("CARGO_BIN_EXE_strata"))
+    let out = common::strata()
         .arg("map")
         .args(args)
         .current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rust_repo"))
@@ -108,7 +109,7 @@ fn levels_and_budgets_trade_detail_for_size() {
 
 #[test]
 fn map_is_also_an_agent_tool() {
-    let out = Command::new(env!("CARGO_BIN_EXE_strata"))
+    let out = common::strata()
         .args(["call", "map", r#"{"level":1}"#])
         .current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rust_repo"))
         .output()

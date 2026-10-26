@@ -1,0 +1,1 @@
+{"level":3,"text":"# strata map | modules 1 symbols 4 edges 0 | level 3 | ~70 tokens\n== pkg.shapes pkg/shapes.py\nfn area :1 def area(w, h)\nclass Circle :5 class Circle\n  fn Circle.radius :6 def radius(self)\n  fn Circle.diameter :9 def diameter(self)\n","tokens":66}

@@ -3,6 +3,7 @@
 
 use crate::graph::EdgeKind;
 
+pub mod javascript;
 pub mod python;
 pub mod rust;
 
@@ -128,13 +129,29 @@ pub struct Ref {
     pub kind: EdgeKind,
 }
 
+/// A DOM lookup in script code (`document.querySelector('.x')`, `el.classList.add('x')`),
+/// with what it targets as a CSS selector.
+#[derive(Debug, Clone)]
+pub struct DomRef {
+    pub enclosing: Option<String>,
+    /// The DOM method, `classList.` prefixed for class-list operations.
+    pub call: String,
+    /// The selector, or the argument expression as written when it is built at runtime.
+    pub selector: Result<String, String>,
+    pub line: usize,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct FileFacts {
+    pub dom: Vec<DomRef>,
     pub bindings: Vec<Binding>,
     pub refs: Vec<Ref>,
     pub defs: Vec<Def>,
     pub imports: Vec<Import>,
     pub calls: Vec<Call>,
+    /// The file's top-level definitions live in one scope shared with every other such file
+    /// (a classic `<script>`): a bare name not found here may be defined in any of them.
+    pub shares_globals: bool,
 }
 
 /// What a reader of a definition wants besides its name: its signature and summary line.
@@ -172,10 +189,31 @@ pub trait Language: Sync {
 
 static PYTHON: python::Python = python::Python;
 static RUST: rust::Rust = rust::Rust;
+static JAVASCRIPT: javascript::Javascript = javascript::Javascript;
+
+/// `rel` resolved against the directory `dir`, both repo-relative with `/` separators: `.`
+/// and `..` segments collapse, and a root-relative `rel` (`/static/x.css`) ignores `dir`.
+pub fn join_path(dir: &str, rel: &str) -> String {
+    let mut parts: Vec<&str> = if rel.starts_with('/') {
+        Vec::new()
+    } else {
+        dir.split('/').filter(|p| !p.is_empty()).collect()
+    };
+    for seg in rel.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            s => parts.push(s),
+        }
+    }
+    parts.join("/")
+}
 
 pub fn for_path(rel_path: &str) -> Option<&'static dyn Language> {
     let ext = rel_path.rsplit_once('.')?.1;
-    [&PYTHON as &dyn Language, &RUST]
+    [&PYTHON as &dyn Language, &RUST, &JAVASCRIPT]
         .into_iter()
         .find(|l| l.extensions().contains(&ext))
 }

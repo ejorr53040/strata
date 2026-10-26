@@ -202,6 +202,18 @@ fn check_credentials(path: &std::path::Path) -> Result<(), String> {
     }
 }
 
+/// Identifies one build of the daemon binary at `exe` (its mtime). The client sends the id of
+/// the binary next to it; a daemon started from an older build sees a mismatch and steps aside.
+pub fn build_id(exe: &std::path::Path) -> Result<String, String> {
+    let modified = std::fs::metadata(exe)
+        .and_then(|m| m.modified())
+        .map_err(|e| format!("{}: {e}", exe.display()))?;
+    let since = modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    Ok(since.as_nanos().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

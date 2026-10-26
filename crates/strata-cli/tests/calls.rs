@@ -1,8 +1,9 @@
+mod common;
+
 use std::path::PathBuf;
-use std::process::Command;
 
 fn run(args: &[&str]) -> Vec<String> {
-    let out = Command::new(env!("CARGO_BIN_EXE_strata"))
+    let out = common::strata()
         .args(args)
         .current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/call_repo"))
         .output()
@@ -55,7 +56,7 @@ fn symbol_may_be_given_by_unique_dotted_suffix() {
 
 #[test]
 fn json_output_carries_state_and_targets() {
-    let out = Command::new(env!("CARGO_BIN_EXE_strata"))
+    let out = common::strata()
         .args(["callees", "app.util.other", "--json"])
         .current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/call_repo"))
         .output()

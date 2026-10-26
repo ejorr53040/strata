@@ -1,0 +1,1259 @@
+//! The markup index: HTML elements and CSS rules, kept apart from the code graph because
+//! selectors match elements instead of names resolving to definitions.
+//!
+//! Selector matching is static: pseudo-classes that depend on state or position (`:hover`,
+//! `:first-child`) are assumed to match, so a match means "can apply", never a guess that it
+//! cannot. `:not(x)` with a single compound argument is honoured.
+
+use crate::graph::Source;
+use serde::Serialize;
+use tree_sitter::{Node, Parser};
+
+/// Files the markup index reads: HTML pages and CSS stylesheets.
+pub fn is_markup(path: &str) -> bool {
+    is_html(path) || is_css(path)
+}
+
+fn is_html(path: &str) -> bool {
+    matches!(path.rsplit_once('.').map(|(_, e)| e), Some("html" | "htm"))
+}
+
+fn is_css(path: &str) -> bool {
+    path.ends_with(".css")
+}
+
+/// An HTML element by its start tag, with its literal id and classes.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Element {
+    pub path: String,
+    pub line: usize,
+    pub tag: String,
+    pub id: Option<String>,
+    pub classes: Vec<String>,
+    #[serde(skip)]
+    attrs: Vec<(String, String)>,
+    #[serde(skip)]
+    parent: Option<usize>,
+    #[serde(skip)]
+    prev_sibling: Option<usize>,
+}
+
+/// One selector of a rule (`a, b { }` is two rules) and the properties it declares.
+#[derive(Debug, Clone, Serialize)]
+pub struct Rule {
+    pub selector: String,
+    pub specificity: [u32; 3],
+    pub path: String,
+    pub line: usize,
+    /// Property names; `!important` declarations read `name !important`.
+    pub properties: Vec<String>,
+    #[serde(skip)]
+    sheet: usize,
+    #[serde(skip)]
+    parsed: Selector,
+    /// The `@media` query gating the rule, when it can be false (`print`, `(min-width: 40em)`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media: Option<String>,
+    /// Applies only in a state (`:hover`), to a pseudo-element (`::before`) or under a
+    /// [`Rule::media`] query, so it never decides the element's own resting style.
+    #[serde(skip)]
+    conditional: bool,
+}
+
+/// A rule (or an inline `style` attribute) by selector and location.
+#[derive(Debug, Serialize)]
+pub struct RuleLoc {
+    pub selector: String,
+    pub path: String,
+    pub line: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Cascade<'a> {
+    pub element: &'a Element,
+    /// Matching rules from lowest to highest precedence by specificity, then source order.
+    pub rules: Vec<&'a Rule>,
+    /// For each property, the rule whose declaration applies (`!important` first).
+    pub winners: std::collections::BTreeMap<String, RuleLoc>,
+}
+
+/// Every indexed page's elements and every stylesheet's rules, plus what links them.
+#[derive(Debug, Default)]
+pub struct Markup {
+    pub elements: Vec<Element>,
+    pub rules: Vec<Rule>,
+    /// Stylesheet paths: a `.css` file, or the HTML file holding a `<style>` block.
+    sheets: Vec<String>,
+    /// For each HTML file, the stylesheets it applies, in document order.
+    pages: std::collections::BTreeMap<String, Vec<usize>>,
+    /// Per HTML file, `<link rel=stylesheet>` hrefs (resolved after every sheet is known)
+    /// interleaved with inline `<style>` sheets.
+    page_refs: Vec<(String, SheetRef)>,
+    /// Per HTML file, `<script src>` values.
+    page_scripts: Vec<(String, String)>,
+    /// `@import` targets as written, per importing sheet; resolved into `imports`.
+    import_refs: Vec<(usize, String)>,
+    /// Sheets each sheet imports, in order.
+    imports: std::collections::BTreeMap<usize, Vec<usize>>,
+    /// Every indexed script file, for resolving `<script src>`.
+    scripts: Vec<String>,
+    /// DOM lookups in script files: (script path, caller id, lookup).
+    dom: Vec<(String, String, crate::lang::DomRef)>,
+}
+
+/// An HTML page: what it loads and the ids and classes its elements carry.
+#[derive(Debug, Serialize)]
+pub struct Page {
+    pub path: String,
+    /// Stylesheet files that apply to it, in cascade order.
+    pub stylesheets: Vec<String>,
+    pub inline_styles: usize,
+    /// Indexed script files its `<script src>` tags load.
+    pub scripts: Vec<String>,
+    pub ids: Vec<String>,
+    pub classes: Vec<String>,
+}
+
+/// One stylesheet's rules, for listing.
+#[derive(Debug, Serialize)]
+pub struct Stylesheet {
+    /// A `.css` file, or the HTML file holding `<style>` blocks.
+    pub path: String,
+    pub rules: Vec<SheetRule>,
+}
+
+/// A rule as listed under its stylesheet.
+#[derive(Debug, Serialize)]
+pub struct SheetRule {
+    pub selector: String,
+    pub line: usize,
+    pub unused: bool,
+}
+
+/// A DOM lookup in script code and what it reaches.
+#[derive(Debug, Serialize)]
+pub struct SelectorRef {
+    pub caller: String,
+    pub call: String,
+    pub selector: Option<String>,
+    /// `resolved` for a literal selector (its matches may be empty: the element can be built
+    /// by script), `unresolved` when the selector is built at runtime.
+    pub state: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub path: String,
+    pub line: usize,
+    /// `path:line` of each element it can match on the pages that load the script.
+    pub elements: Vec<String>,
+    /// `path:line selector` of each rule that mentions the class, id or tag it targets.
+    pub rules: Vec<String>,
+}
+
+/// Cascade precedence of a matching rule: specificity, then the page's sheet order, then
+/// position in the index (source order within a sheet).
+type Precedence = ([u32; 3], usize, usize);
+
+#[derive(Debug)]
+enum SheetRef {
+    Href(String),
+    Inline(usize),
+}
+
+/// Index the HTML and CSS among `sources`, and the DOM lookups in their scripts.
+pub fn build(sources: &[Source]) -> Markup {
+    let mut m = Markup::default();
+    for s in sources.iter().filter(|s| is_css(&s.path)) {
+        let sheet = m.add_sheet(&s.path);
+        m.parse_css(&s.text, &s.path, sheet, 0);
+    }
+    for s in sources {
+        let Some(lang) = crate::lang::for_path(&s.path) else {
+            continue;
+        };
+        if lang.name() == "javascript" {
+            m.scripts.push(s.path.clone());
+        }
+        let module = lang.module_name(&s.path);
+        for d in lang.extract(&s.path, &s.text).dom {
+            let caller =
+                crate::graph::qualify(&module, d.enclosing.as_deref().unwrap_or("<module>"));
+            m.dom.push((s.path.clone(), caller, d));
+        }
+    }
+    for s in sources.iter().filter(|s| is_html(&s.path)) {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_html::LANGUAGE.into())
+            .unwrap();
+        m.pages.entry(s.path.clone()).or_default();
+        if let Some(tree) = parser.parse(&s.text, None) {
+            let mut st = Html {
+                src: s.text.as_bytes(),
+                path: &s.path,
+                out: &mut m,
+            };
+            st.children(tree.root_node(), None);
+        }
+    }
+    m.link_pages();
+    m
+}
+
+impl Markup {
+    fn add_sheet(&mut self, path: &str) -> usize {
+        self.sheets.push(path.to_string());
+        self.sheets.len() - 1
+    }
+
+    /// Rules of a stylesheet; `line_offset` places a `<style>` block inside its HTML file.
+    fn parse_css(&mut self, text: &str, path: &str, sheet: usize, line_offset: usize) {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_css::LANGUAGE.into())
+            .unwrap();
+        let Some(tree) = parser.parse(text, None) else {
+            return;
+        };
+        // (node, the `@media` query it sits under when that query can be false).
+        let mut stack = vec![(tree.root_node(), None::<String>)];
+        while let Some((node, media)) = stack.pop() {
+            if node.kind() == "import_statement" {
+                // `@import "x.css"` / `@import url(x.css) screen`: the first quoted or url() target.
+                let raw = node.utf8_text(text.as_bytes()).unwrap_or_default();
+                let rest = raw.trim_start_matches("@import").trim_start();
+                let rest = rest.strip_prefix("url(").unwrap_or(rest);
+                let target: String = rest
+                    .trim_start_matches(['"', '\''])
+                    .chars()
+                    .take_while(|c| !matches!(c, '"' | '\'' | ')' | ' ' | ';'))
+                    .collect();
+                self.import_refs.push((sheet, target));
+                continue;
+            }
+            if node.kind() != "rule_set" {
+                let media = match node.kind() {
+                    "media_statement" => {
+                        let head = node
+                            .named_children(&mut node.walk())
+                            .find(|n| n.kind() == "block")
+                            .map_or(node.end_byte(), |b| b.start_byte());
+                        let query = text[node.start_byte()..head]
+                            .trim_start_matches("@media")
+                            .split_whitespace()
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        // `screen` and `all` hold wherever a page is looked at.
+                        match query.as_str() {
+                            "screen" | "all" => media,
+                            _ => Some(query),
+                        }
+                    }
+                    _ => media,
+                };
+                let mut c = node.walk();
+                let kids: Vec<Node> = node.named_children(&mut c).collect();
+                stack.extend(kids.into_iter().rev().map(|k| (k, media.clone())));
+                continue;
+            }
+            let src = text.as_bytes();
+            let mut properties = Vec::new();
+            if let Some(block) = node
+                .named_children(&mut node.walk())
+                .find(|n| n.kind() == "block")
+            {
+                let mut c = block.walk();
+                for d in block
+                    .named_children(&mut c)
+                    .filter(|d| d.kind() == "declaration")
+                {
+                    let mut dc = d.walk();
+                    let kids: Vec<Node> = d.named_children(&mut dc).collect();
+                    let Some(name) = kids.iter().find(|k| k.kind() == "property_name") else {
+                        continue;
+                    };
+                    let name = name.utf8_text(src).unwrap_or_default().to_string();
+                    let important = kids.iter().any(|k| k.kind() == "important");
+                    properties.push(if important {
+                        format!("{name} !important")
+                    } else {
+                        name
+                    });
+                }
+            }
+            let Some(sels) = node
+                .named_children(&mut node.walk())
+                .find(|n| n.kind() == "selectors")
+            else {
+                continue;
+            };
+            let mut c = sels.walk();
+            for sel in sels.named_children(&mut c) {
+                let selector = sel
+                    .utf8_text(src)
+                    .unwrap_or_default()
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let Some(parsed) = parse(&selector) else {
+                    continue;
+                };
+                self.rules.push(Rule {
+                    specificity: parsed.specificity(),
+                    selector,
+                    path: path.to_string(),
+                    line: sel.start_position().row + 1 + line_offset,
+                    properties: properties.clone(),
+                    conditional: media.is_some() || parsed.compounds.iter().any(|c| c.conditional),
+                    media: media.clone(),
+                    sheet,
+                    parsed,
+                });
+            }
+        }
+    }
+
+    /// Resolve each page's `<link>` hrefs to indexed stylesheets.
+    fn link_pages(&mut self) {
+        for (sheet, href) in std::mem::take(&mut self.import_refs) {
+            let from = self.sheets[sheet].clone();
+            let targets = self.resolve_href(&from, &href);
+            self.imports.entry(sheet).or_default().extend(targets);
+        }
+        for (page, r) in std::mem::take(&mut self.page_refs) {
+            let ids: Vec<usize> = match r {
+                SheetRef::Inline(id) => vec![id],
+                SheetRef::Href(href) => self.resolve_href(&page, &href),
+            };
+            self.pages.entry(page).or_default().extend(ids);
+        }
+    }
+
+    fn resolve_href(&self, page: &str, href: &str) -> Vec<usize> {
+        let css: Vec<usize> = (0..self.sheets.len())
+            .filter(|&i| is_css(&self.sheets[i]))
+            .collect();
+        let paths: Vec<&str> = css.iter().map(|&i| self.sheets[i].as_str()).collect();
+        resolve_ref(page, href, &paths)
+            .into_iter()
+            .map(|k| css[k])
+            .collect()
+    }
+
+    /// The stylesheets that apply to elements of `page`: the ones it links and embeds, or
+    /// every indexed stylesheet when it names none (a fragment included elsewhere).
+    fn sheets_of(&self, page: &str) -> Vec<usize> {
+        match self.pages.get(page) {
+            Some(s) if !s.is_empty() => {
+                let (mut seen, mut out) = (Vec::new(), Vec::new());
+                for &sheet in s {
+                    self.with_imports(sheet, &mut seen, &mut out);
+                }
+                out
+            }
+            _ => (0..self.sheets.len())
+                .filter(|&i| is_css(&self.sheets[i]))
+                .collect(),
+        }
+    }
+
+    /// `sheet` preceded by what it `@import`s, recursively; `seen` stops repeats and cycles.
+    fn with_imports(&self, sheet: usize, seen: &mut Vec<usize>, out: &mut Vec<usize>) {
+        if seen.contains(&sheet) {
+            return;
+        }
+        seen.push(sheet);
+        for &i in self.imports.get(&sheet).into_iter().flatten() {
+            self.with_imports(i, seen, out);
+        }
+        out.push(sheet);
+    }
+
+    /// Every rule that can apply to the element(s) starting at `path:line`, in cascade order.
+    pub fn matching_rules(&self, path: &str, line: usize) -> Vec<Cascade<'_>> {
+        let mut out = Vec::new();
+        for (i, e) in self.elements.iter().enumerate() {
+            if e.path != path || e.line != line {
+                continue;
+            }
+            let sheets = self.sheets_of(path);
+            // (rule index, precedence key): specificity, then sheet order, then position.
+            let mut hits: Vec<(usize, Precedence)> = self
+                .rules
+                .iter()
+                .enumerate()
+                .filter_map(|(ri, r)| {
+                    let order = sheets.iter().position(|&s| s == r.sheet)?;
+                    self.matches(&r.parsed, i)
+                        .then_some((ri, (r.specificity, order, ri)))
+                })
+                .collect();
+            hits.sort_by_key(|h| h.1);
+            let mut winners = std::collections::BTreeMap::new();
+            let mut best: std::collections::BTreeMap<String, (bool, Precedence)> =
+                std::collections::BTreeMap::new();
+            for (ri, key) in &hits {
+                let r = &self.rules[*ri];
+                if r.conditional {
+                    continue;
+                }
+                for p in &r.properties {
+                    let (name, important) = match p.strip_suffix(" !important") {
+                        Some(n) => (n.to_string(), true),
+                        None => (p.clone(), false),
+                    };
+                    let rank = (important, *key);
+                    if best.get(&name).is_none_or(|b| rank > *b) {
+                        best.insert(name.clone(), rank);
+                        winners.insert(
+                            name,
+                            RuleLoc {
+                                selector: r.selector.clone(),
+                                path: r.path.clone(),
+                                line: r.line,
+                            },
+                        );
+                    }
+                }
+            }
+            // An inline `style` attribute outranks every rule; only `!important` beats it.
+            let inline = e
+                .attrs
+                .iter()
+                .find(|(k, _)| k == "style")
+                .map(|(_, v)| v.as_str())
+                .filter(|v| !v.contains('{'));
+            for decl in inline.into_iter().flat_map(|v| v.split(';')) {
+                let Some((name, value)) = decl.split_once(':') else {
+                    continue;
+                };
+                let name = name.trim().to_lowercase();
+                let rank = (
+                    value.contains("!important"),
+                    ([u32::MAX; 3], usize::MAX, usize::MAX),
+                );
+                if best.get(&name).is_none_or(|b| rank > *b) {
+                    best.insert(name.clone(), rank);
+                    winners.insert(
+                        name,
+                        RuleLoc {
+                            selector: "style attribute".into(),
+                            path: e.path.clone(),
+                            line: e.line,
+                        },
+                    );
+                }
+            }
+            out.push(Cascade {
+                element: e,
+                rules: hits.iter().map(|(ri, _)| &self.rules[*ri]).collect(),
+                winners,
+            });
+        }
+        out
+    }
+
+    /// Pages whose `<script src>` loads `script`, or every page when none does.
+    fn pages_loading(&self, script: &str) -> Vec<&str> {
+        let scripts: Vec<&str> = self.scripts.iter().map(String::as_str).collect();
+        let loading: Vec<&str> = self
+            .page_scripts
+            .iter()
+            // Against every script: a lone candidate would match any file of the same name.
+            .filter(|(page, src)| {
+                resolve_ref(page, src, &scripts)
+                    .iter()
+                    .any(|&i| scripts[i] == script)
+            })
+            .map(|(page, _)| page.as_str())
+            .collect();
+        if loading.is_empty() {
+            self.pages.keys().map(String::as_str).collect()
+        } else {
+            loading
+        }
+    }
+
+    /// DOM lookups in script code (only in `path` when given), each linked to the elements and
+    /// rules it reaches.
+    pub fn selector_refs(&self, path: Option<&str>) -> Vec<SelectorRef> {
+        let mut out = Vec::new();
+        for (script, caller, d) in &self.dom {
+            if path.is_some_and(|p| p != script) {
+                continue;
+            }
+            let mut r = SelectorRef {
+                caller: caller.clone(),
+                call: d.call.clone(),
+                selector: None,
+                state: "unresolved",
+                reason: None,
+                path: script.clone(),
+                line: d.line,
+                elements: Vec::new(),
+                rules: Vec::new(),
+            };
+            let sel = match &d.selector {
+                Ok(s) => s,
+                Err(expr) => {
+                    let is_name = expr
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '_' || c == '$');
+                    r.reason = Some(if is_name {
+                        format!("selector is the variable `{expr}`, whose value is not tracked")
+                    } else {
+                        format!("selector built at runtime: `{expr}`")
+                    });
+                    out.push(r);
+                    continue;
+                }
+            };
+            r.selector = Some(sel.clone());
+            let parsed: Vec<Selector> = split_list(sel).iter().filter_map(|s| parse(s)).collect();
+            if parsed.is_empty() {
+                r.reason = Some(format!("cannot read selector `{sel}`"));
+                out.push(r);
+                continue;
+            }
+            r.state = "resolved";
+            let pages = self.pages_loading(script);
+            for (i, e) in self.elements.iter().enumerate() {
+                if pages.contains(&e.path.as_str()) && parsed.iter().any(|s| self.matches(s, i)) {
+                    r.elements.push(format!("{}:{}", e.path, e.line));
+                }
+            }
+            let sheets: Vec<usize> = pages.iter().flat_map(|p| self.sheets_of(p)).collect();
+            let targets: Vec<&Compound> =
+                parsed.iter().filter_map(|s| s.compounds.last()).collect();
+            for rule in &self.rules {
+                if !sheets.contains(&rule.sheet) {
+                    continue;
+                }
+                let rs = &rule.parsed;
+                if targets
+                    .iter()
+                    .any(|t| rs.compounds.iter().any(|c| c.mentions(t)))
+                {
+                    r.rules
+                        .push(format!("{}:{} {}", rule.path, rule.line, rule.selector));
+                }
+            }
+            out.push(r);
+        }
+        out
+    }
+
+    /// Every page with what it loads and the ids and classes it names.
+    pub fn pages(&self) -> Vec<Page> {
+        self.pages
+            .keys()
+            .map(|page| {
+                let sheets = self.sheets_of(page);
+                let mut ids = std::collections::BTreeSet::new();
+                let mut classes = std::collections::BTreeSet::new();
+                for e in self.elements.iter().filter(|e| &e.path == page) {
+                    ids.extend(e.id.iter().cloned());
+                    classes.extend(e.classes.iter().cloned());
+                }
+                let scripts: Vec<&str> = self.scripts.iter().map(String::as_str).collect();
+                let mut loaded = Vec::new();
+                for (_, src) in self.page_scripts.iter().filter(|(p, _)| p == page) {
+                    for i in resolve_ref(page, src, &scripts) {
+                        if !loaded.contains(&self.scripts[i]) {
+                            loaded.push(self.scripts[i].clone());
+                        }
+                    }
+                }
+                Page {
+                    path: page.clone(),
+                    stylesheets: sheets
+                        .iter()
+                        .filter(|&&s| is_css(&self.sheets[s]))
+                        .map(|&s| self.sheets[s].clone())
+                        .collect(),
+                    inline_styles: sheets.iter().filter(|&&s| !is_css(&self.sheets[s])).count(),
+                    scripts: loaded,
+                    ids: ids.into_iter().collect(),
+                    classes: classes.into_iter().collect(),
+                }
+            })
+            .collect()
+    }
+
+    /// Every stylesheet with its rules; a page's `<style>` blocks are one entry under its path.
+    pub fn stylesheets(&self) -> Vec<Stylesheet> {
+        let unused: Vec<(String, usize, String)> = self
+            .unused_selectors()
+            .into_iter()
+            .map(|w| (w.path, w.line, w.selector))
+            .collect();
+        let mut out: Vec<Stylesheet> = Vec::new();
+        for r in &self.rules {
+            let rule = SheetRule {
+                selector: r.selector.clone(),
+                line: r.line,
+                unused: unused.contains(&(r.path.clone(), r.line, r.selector.clone())),
+            };
+            match out.iter_mut().find(|s| s.path == r.path) {
+                Some(s) => s.rules.push(rule),
+                None => out.push(Stylesheet {
+                    path: r.path.clone(),
+                    rules: vec![rule],
+                }),
+            }
+        }
+        out
+    }
+
+    /// Rules whose selector matches no element on any page that loads their stylesheet. An
+    /// element may also carry any class a script on its page adds (`classList.add/toggle`).
+    pub fn unused_selectors(&self) -> Vec<RuleLoc> {
+        let loaded: Vec<(&String, Vec<usize>, Vec<String>)> = self
+            .pages
+            .keys()
+            .map(|p| (p, self.sheets_of(p), self.scripted_classes(p)))
+            .collect();
+        self.rules
+            .iter()
+            .filter(|r| {
+                let sel = &r.parsed;
+                !self.elements.iter().enumerate().any(|(i, e)| {
+                    loaded.iter().any(|(p, sheets, scripted)| {
+                        **p == e.path
+                            && sheets.contains(&r.sheet)
+                            && self.match_from(sel, sel.compounds.len() - 1, i, scripted)
+                    })
+                })
+            })
+            .map(|r| RuleLoc {
+                selector: r.selector.clone(),
+                path: r.path.clone(),
+                line: r.line,
+            })
+            .collect()
+    }
+
+    /// Classes the scripts loaded by `page` may add to its elements.
+    fn scripted_classes(&self, page: &str) -> Vec<String> {
+        self.dom
+            .iter()
+            .filter(|(script, _, d)| {
+                matches!(
+                    d.call.as_str(),
+                    "classList.add" | "classList.toggle" | "classList.replace"
+                ) && self.pages_loading(script).contains(&page)
+            })
+            .filter_map(|(_, _, d)| d.selector.as_ref().ok())
+            // Through the parser, so an escaped name (`.sm\:p-2`) reads as the class `sm:p-2`.
+            .filter_map(|s| parse(s))
+            .flat_map(|sel| sel.compounds.into_iter().flat_map(|c| c.classes))
+            .collect()
+    }
+
+    /// Elements `selector` (one selector or a comma-separated list) can apply to.
+    pub fn matched_elements(&self, selector: &str) -> Vec<&Element> {
+        let sels: Vec<Selector> = split_list(selector)
+            .iter()
+            .filter_map(|s| parse(s))
+            .collect();
+        (0..self.elements.len())
+            .filter(|&i| sels.iter().any(|s| self.matches(s, i)))
+            .map(|i| &self.elements[i])
+            .collect()
+    }
+
+    fn matches(&self, sel: &Selector, el: usize) -> bool {
+        self.match_from(sel, sel.compounds.len() - 1, el, &[])
+    }
+
+    /// Does `sel.compounds[..=k]` match with compound `k` on element `el`? Right to left.
+    /// `scripted` classes count as present on every element.
+    fn match_from(&self, sel: &Selector, k: usize, el: usize, scripted: &[String]) -> bool {
+        if !self.compound(&sel.compounds[k], el, scripted) {
+            return false;
+        }
+        if k == 0 {
+            return true;
+        }
+        let e = &self.elements[el];
+        let up = |i: usize| self.match_from(sel, k - 1, i, scripted);
+        match sel.combinators[k - 1] {
+            Comb::Child => e.parent.is_some_and(up),
+            Comb::Descendant => {
+                let mut p = e.parent;
+                while let Some(i) = p {
+                    if up(i) {
+                        return true;
+                    }
+                    p = self.elements[i].parent;
+                }
+                false
+            }
+            Comb::Adjacent => e.prev_sibling.is_some_and(up),
+            Comb::Sibling => {
+                let mut s = e.prev_sibling;
+                while let Some(i) = s {
+                    if up(i) {
+                        return true;
+                    }
+                    s = self.elements[i].prev_sibling;
+                }
+                false
+            }
+        }
+    }
+
+    fn compound(&self, c: &Compound, el: usize, scripted: &[String]) -> bool {
+        let e = &self.elements[el];
+        c.tag.as_ref().is_none_or(|t| t == "*" || *t == e.tag)
+            && c.ids.iter().all(|id| e.id.as_deref() == Some(id))
+            && c.classes
+                .iter()
+                .all(|cl| e.classes.contains(cl) || scripted.contains(cl))
+            && c.attrs.iter().all(|a| a.matches(&e.attrs))
+            // A scripted class may be absent too, so `:not(.x)` still can match.
+            && c.nots.iter().all(|n| !self.compound(n, el, &[]))
+    }
+}
+
+struct Html<'a> {
+    src: &'a [u8],
+    path: &'a str,
+    out: &'a mut Markup,
+}
+
+impl Html<'_> {
+    fn text(&self, n: Node) -> String {
+        n.utf8_text(self.src).unwrap_or_default().to_string()
+    }
+
+    /// Records every element below `node` as a child of `parent`.
+    fn children(&mut self, node: Node, parent: Option<usize>) {
+        let mut prev = None;
+        let mut c = node.walk();
+        for child in node.children(&mut c) {
+            match child.kind() {
+                "element" | "script_element" | "style_element" => {
+                    let mut cc = child.walk();
+                    let Some(tag) = child
+                        .children(&mut cc)
+                        .find(|n| matches!(n.kind(), "start_tag" | "self_closing_tag"))
+                    else {
+                        self.children(child, parent);
+                        continue;
+                    };
+                    let i = self.element(tag, parent, prev);
+                    prev = Some(i);
+                    if child.kind() == "style_element" {
+                        self.style(child);
+                    }
+                    self.children(child, Some(i));
+                }
+                "self_closing_tag" => {
+                    prev = Some(self.element(child, parent, prev));
+                }
+                _ => self.children(child, parent),
+            }
+        }
+    }
+
+    fn element(&mut self, tag: Node, parent: Option<usize>, prev: Option<usize>) -> usize {
+        let mut name = String::new();
+        let mut attrs = Vec::new();
+        let mut c = tag.walk();
+        for n in tag.named_children(&mut c) {
+            match n.kind() {
+                "tag_name" => name = self.text(n).to_lowercase(),
+                "attribute" => {
+                    let mut ac = n.walk();
+                    let mut key = String::new();
+                    let mut value = String::new();
+                    for a in n.named_children(&mut ac) {
+                        match a.kind() {
+                            "attribute_name" => key = self.text(a).to_lowercase(),
+                            "attribute_value" => value = self.text(a),
+                            "quoted_attribute_value" => {
+                                value = a.named_child(0).map(|v| self.text(v)).unwrap_or_default()
+                            }
+                            _ => {}
+                        }
+                    }
+                    attrs.push((key, value));
+                }
+                _ => {}
+            }
+        }
+        let get = |k: &str| attrs.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        // Template syntax (`{{ x }}`, `{% if %}`) is dynamic: keep only literal tokens.
+        let literal = |t: &str| !t.contains(['{', '}', '%']);
+        let id = get("id").filter(|v| literal(v) && !v.is_empty());
+        let classes = get("class")
+            .map(|v| {
+                strip_templates(&v)
+                    .split_whitespace()
+                    .filter(|t| literal(t))
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let is_sheet = get("rel").is_some_and(|r| {
+            r.split_whitespace()
+                .any(|t| t.eq_ignore_ascii_case("stylesheet"))
+        });
+        if name == "script" {
+            if let Some(src) = get("src") {
+                self.out.page_scripts.push((self.path.to_string(), src));
+            }
+        }
+        if name == "link" && is_sheet {
+            if let Some(href) = get("href") {
+                self.out
+                    .page_refs
+                    .push((self.path.to_string(), SheetRef::Href(href)));
+            }
+        }
+        self.out.elements.push(Element {
+            path: self.path.to_string(),
+            line: tag.start_position().row + 1,
+            tag: name,
+            id,
+            classes,
+            attrs,
+            parent,
+            prev_sibling: prev,
+        });
+        self.out.elements.len() - 1
+    }
+
+    /// A `<style>` block: a stylesheet of its own, in document order among the links.
+    fn style(&mut self, node: Node) {
+        let mut c = node.walk();
+        let Some(raw) = node.children(&mut c).find(|n| n.kind() == "raw_text") else {
+            return;
+        };
+        let text = self.text(raw);
+        let sheet = self.out.add_sheet(self.path);
+        self.out
+            .page_refs
+            .push((self.path.to_string(), SheetRef::Inline(sheet)));
+        let offset = raw.start_position().row;
+        // Rows inside `text` start at 0; the first is on the `<style>` line itself.
+        self.out.parse_css(&text, self.path, sheet, offset);
+    }
+}
+
+/// `base.css`, `../css/x.css`, `/static/x.css` or Jinja's
+/// `{{ url_for('static', filename='x.css') }}`, as indices into `candidates`: the path relative
+/// to the page when it is indexed, else every candidate with that file name.
+fn resolve_ref(page: &str, href: &str, candidates: &[&str]) -> Vec<usize> {
+    let href = match href.split_once("filename=") {
+        Some((_, rest)) => rest
+            .trim_start_matches(['\'', '"'])
+            .split(['\'', '"'])
+            .next()
+            .unwrap_or_default(),
+        None => href.split(['?', '#']).next().unwrap_or_default(),
+    };
+    if href.is_empty() || href.contains("://") || href.starts_with("//") {
+        return Vec::new();
+    }
+    let dir = page.rsplit_once('/').map_or("", |(d, _)| d);
+    let rel = crate::lang::join_path(dir, href);
+    if let Some(i) = candidates.iter().position(|c| *c == rel) {
+        return vec![i];
+    }
+    let file = href.rsplit('/').next().unwrap_or(href);
+    (0..candidates.len())
+        .filter(|&i| candidates[i] == file || candidates[i].ends_with(&format!("/{file}")))
+        .collect()
+}
+
+/// `card {% if x %}active{% endif %}` → `card  active `: the tags go, the words stay.
+fn strip_templates(v: &str) -> String {
+    let mut out = String::new();
+    let mut rest = v;
+    while let Some(i) = rest.find(['{']) {
+        out.push_str(&rest[..i]);
+        let close = match rest[i..].get(1..2) {
+            Some("%") => "%}",
+            Some("{") => "}}",
+            Some("#") => "#}",
+            _ => {
+                out.push('{');
+                rest = &rest[i + 1..];
+                continue;
+            }
+        };
+        match rest[i..].find(close) {
+            Some(j) => {
+                out.push(' ');
+                rest = &rest[i + j + 2..];
+            }
+            None => {
+                rest = "";
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Comb {
+    Descendant,
+    Child,
+    Adjacent,
+    Sibling,
+}
+
+#[derive(Debug, Clone, Default)]
+struct Compound {
+    /// Specificity of pseudo-classes and pseudo-elements, which do not otherwise constrain the
+    /// match (`:hover` is assumed, `:is(..)` counts its most specific argument).
+    pseudo: [u32; 3],
+    tag: Option<String>,
+    ids: Vec<String>,
+    classes: Vec<String>,
+    attrs: Vec<AttrSel>,
+    /// Single-compound `:not(..)` arguments.
+    nots: Vec<Compound>,
+    /// Has a state pseudo-class or a pseudo-element: see [`Rule::conditional`].
+    conditional: bool,
+}
+
+#[derive(Debug, Clone)]
+struct AttrSel {
+    name: String,
+    /// Operator (`=`, `~=`, `|=`, `^=`, `$=`, `*=`) and value; `None` tests presence.
+    test: Option<(String, String)>,
+}
+
+impl AttrSel {
+    fn matches(&self, attrs: &[(String, String)]) -> bool {
+        let Some((_, v)) = attrs.iter().find(|(n, _)| *n == self.name) else {
+            return false;
+        };
+        let Some((op, want)) = &self.test else {
+            return true;
+        };
+        match op.as_str() {
+            "=" => v == want,
+            "~=" => v.split_whitespace().any(|t| t == want),
+            "|=" => v == want || v.starts_with(&format!("{want}-")),
+            "^=" => v.starts_with(want.as_str()),
+            "$=" => v.ends_with(want.as_str()),
+            "*=" => v.contains(want.as_str()),
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Selector {
+    compounds: Vec<Compound>,
+    /// `combinators[i]` joins `compounds[i]` and `compounds[i + 1]`.
+    combinators: Vec<Comb>,
+}
+
+impl Compound {
+    /// Does this compound name everything `target` names: its ids and classes, or its tag
+    /// when it names neither?
+    fn mentions(&self, target: &Compound) -> bool {
+        if target.ids.is_empty() && target.classes.is_empty() {
+            return target
+                .tag
+                .as_ref()
+                .is_some_and(|t| t != "*" && self.tag.as_ref() == Some(t));
+        }
+        target.ids.iter().all(|i| self.ids.contains(i))
+            && target.classes.iter().all(|c| self.classes.contains(c))
+    }
+
+    fn specificity(&self) -> [u32; 3] {
+        let tag = u32::from(self.tag.as_deref().is_some_and(|t| t != "*"));
+        [
+            self.ids.len() as u32 + self.pseudo[0],
+            (self.classes.len() + self.attrs.len()) as u32 + self.pseudo[1],
+            tag + self.pseudo[2],
+        ]
+    }
+}
+
+impl Selector {
+    /// (ids, classes/attributes/pseudo-classes, types/pseudo-elements).
+    fn specificity(&self) -> [u32; 3] {
+        self.compounds.iter().fold([0; 3], |acc, c| {
+            let s = c.specificity();
+            [acc[0] + s[0], acc[1] + s[1], acc[2] + s[2]]
+        })
+    }
+}
+
+/// The most specific selector of a list (`:is(a, #b)` counts as `#b`).
+fn max_specificity(list: &str) -> [u32; 3] {
+    split_list(list)
+        .iter()
+        .filter_map(|s| parse(s))
+        .map(|s| s.specificity())
+        .max()
+        .unwrap_or_default()
+}
+
+/// Split a selector list on top-level commas.
+fn split_list(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut cur = String::new();
+    let mut escaped = false;
+    for ch in s.chars() {
+        if std::mem::take(&mut escaped) {
+            cur.push(ch);
+            continue;
+        }
+        match ch {
+            '\\' => escaped = true,
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            ',' if depth == 0 => {
+                out.push(cur.trim().to_string());
+                cur.clear();
+                continue;
+            }
+            _ => {}
+        }
+        cur.push(ch);
+    }
+    if !cur.trim().is_empty() {
+        out.push(cur.trim().to_string());
+    }
+    out
+}
+
+/// Parse one complex selector (`#main > .card a`). `None` for syntax it cannot read.
+fn parse(s: &str) -> Option<Selector> {
+    let mut compounds = Vec::new();
+    let mut combinators = Vec::new();
+    let mut cur = String::new();
+    let mut pending: Option<Comb> = None;
+    let mut depth = 0i32;
+    let flush = |cur: &mut String,
+                 pending: &mut Option<Comb>,
+                 compounds: &mut Vec<Compound>,
+                 combinators: &mut Vec<Comb>|
+     -> Option<()> {
+        if cur.is_empty() {
+            return Some(());
+        }
+        if !compounds.is_empty() {
+            combinators.push(pending.take().unwrap_or(Comb::Descendant));
+        }
+        compounds.push(parse_compound(cur)?);
+        cur.clear();
+        Some(())
+    };
+    let mut escaped = false;
+    for ch in s.chars() {
+        if std::mem::take(&mut escaped) {
+            cur.push(ch);
+            continue;
+        }
+        match ch {
+            '\\' => escaped = true,
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            _ => {}
+        }
+        if depth == 0 && matches!(ch, '>' | '+' | '~' | ' ' | '\n' | '\t') {
+            flush(&mut cur, &mut pending, &mut compounds, &mut combinators)?;
+            match ch {
+                '>' => pending = Some(Comb::Child),
+                '+' => pending = Some(Comb::Adjacent),
+                '~' => pending = Some(Comb::Sibling),
+                _ => {}
+            }
+            continue;
+        }
+        cur.push(ch);
+    }
+    flush(&mut cur, &mut pending, &mut compounds, &mut combinators)?;
+    if compounds.is_empty() || pending.is_some() {
+        return None;
+    }
+    Some(Selector {
+        compounds,
+        combinators,
+    })
+}
+
+/// Pseudo-classes that hold only while the user interacts or a form control changes.
+const STATES: &[&str] = &[
+    "hover",
+    "focus",
+    "focus-within",
+    "focus-visible",
+    "active",
+    "visited",
+    "target",
+    "checked",
+    "indeterminate",
+    "valid",
+    "invalid",
+    "user-invalid",
+    "placeholder-shown",
+    "open",
+];
+
+fn is_name_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '-' || c == '_'
+}
+
+/// `a.b` as a CSS identifier: `a\.b`.
+pub fn escape_ident(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars() {
+        if !is_name_char(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+fn parse_compound(s: &str) -> Option<Compound> {
+    let mut c = Compound::default();
+    let chars: Vec<char> = s.chars().collect();
+    let mut i = 0;
+    // An identifier, with CSS escapes decoded: `sm\:p-2` is `sm:p-2`, `\31 0` is `10`.
+    let name = |i: &mut usize| -> String {
+        let mut out = String::new();
+        while *i < chars.len() {
+            match chars[*i] {
+                '\\' if *i + 1 < chars.len() => {
+                    let hex: String = chars[*i + 1..]
+                        .iter()
+                        .take(6)
+                        .take_while(|c| c.is_ascii_hexdigit())
+                        .collect();
+                    if hex.is_empty() {
+                        out.push(chars[*i + 1]);
+                        *i += 2;
+                    } else {
+                        out.extend(u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32));
+                        *i += 1 + hex.len();
+                        if chars.get(*i) == Some(&' ') {
+                            *i += 1;
+                        }
+                    }
+                }
+                c if is_name_char(c) => {
+                    out.push(c);
+                    *i += 1;
+                }
+                _ => break,
+            }
+        }
+        out
+    };
+    while i < chars.len() {
+        match chars[i] {
+            '*' => {
+                c.tag = Some("*".into());
+                i += 1;
+            }
+            '#' => {
+                i += 1;
+                c.ids.push(name(&mut i));
+            }
+            '.' => {
+                i += 1;
+                c.classes.push(name(&mut i));
+            }
+            '[' => {
+                let end = i + chars[i..].iter().position(|&ch| ch == ']')?;
+                c.attrs
+                    .push(parse_attr(&chars[i + 1..end].iter().collect::<String>()));
+                i = end + 1;
+            }
+            ':' => {
+                let element = chars.get(i + 1) == Some(&':');
+                i += if element { 2 } else { 1 };
+                let pname = name(&mut i).to_lowercase();
+                let mut arg = None;
+                if chars.get(i) == Some(&'(') {
+                    let mut depth = 0;
+                    let start = i + 1;
+                    while i < chars.len() {
+                        match chars[i] {
+                            '(' => depth += 1,
+                            ')' => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                        i += 1;
+                    }
+                    arg = Some(chars[start..i.min(chars.len())].iter().collect::<String>());
+                    i += 1;
+                }
+                const LEGACY_ELEMENTS: &[&str] = &["before", "after", "first-line", "first-letter"];
+                match (pname.as_str(), &arg) {
+                    _ if element || LEGACY_ELEMENTS.contains(&pname.as_str()) => {
+                        c.pseudo[2] += 1;
+                        c.conditional = true;
+                    }
+                    ("where", _) => {}
+                    ("not" | "is" | "matches" | "has", Some(a)) => {
+                        let s = max_specificity(a);
+                        for (p, v) in c.pseudo.iter_mut().zip(s) {
+                            *p += v;
+                        }
+                    }
+                    _ => {
+                        c.pseudo[1] += 1;
+                        c.conditional |= STATES.contains(&pname.as_str());
+                    }
+                }
+                if pname == "not" && !element {
+                    if let Some(n) = arg.as_deref().and_then(|a| {
+                        let list = split_list(a);
+                        (list.len() == 1)
+                            .then(|| parse_compound(&list[0]))
+                            .flatten()
+                    }) {
+                        c.nots.push(n);
+                    }
+                }
+            }
+            ch if is_name_char(ch) || ch == '\\' => c.tag = Some(name(&mut i).to_lowercase()),
+            _ => return None,
+        }
+    }
+    Some(c)
+}
+
+fn parse_attr(s: &str) -> AttrSel {
+    for op in ["~=", "|=", "^=", "$=", "*=", "="] {
+        if let Some((n, v)) = s.split_once(op) {
+            let v = v.trim();
+            // A trailing ` i` / ` s` flag.
+            let v = v
+                .strip_suffix(" i")
+                .or_else(|| v.strip_suffix(" s"))
+                .unwrap_or(v)
+                .trim();
+            return AttrSel {
+                name: n.trim().to_lowercase(),
+                test: Some((
+                    op.to_string(),
+                    v.trim_matches(|c| c == '"' || c == '\'').to_string(),
+                )),
+            };
+        }
+    }
+    AttrSel {
+        name: s.trim().to_lowercase(),
+        test: None,
+    }
+}

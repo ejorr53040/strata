@@ -2,8 +2,8 @@
 //! (`strata tools` / `strata call`) and, later, the MCP server and `strata ask`.
 //! Every tool takes a JSON object and returns JSON, so a model can call it directly.
 
+use crate::snapshot::Snapshot;
 use crate::walk::WalkOptions;
-use crate::{graph, index, walk};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -54,6 +54,47 @@ pub fn catalog() -> Vec<Value> {
             },
         }),
         json!({
+            "name": "matched_elements",
+            "description": "HTML elements a CSS selector (or comma-separated list) can apply to, by path and line of the start tag. State pseudo-classes (:hover) are assumed to match; template syntax in class/id ({{ }}, {% %}) is skipped.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"selector": {"type": "string", "description": "A CSS selector, e.g. `#main > .card`"}},
+                "required": ["selector"]
+            },
+        }),
+        json!({
+            "name": "matching_rules",
+            "description": "CSS rules that can apply to the HTML element(s) whose start tag is at `path:line`, from lowest to highest precedence (specificity, then source order across the page's linked and inline stylesheets), and for each property the rule that wins (!important first, then an inline style attribute; rules under :hover-style states, pseudo-elements or an @media query other than screen/all are listed but never win).",
+            "input_schema": {
+                "type": "object",
+                "properties": {"element": {"type": "string", "description": "`path:line` of the element's start tag, e.g. `templates/index.html:12`"}},
+                "required": ["element"]
+            },
+        }),
+        json!({
+            "name": "unused_selectors",
+            "description": "CSS selectors that match no element on any indexed HTML page that loads their stylesheet (a stylesheet no page links is unused throughout). Elements built by JavaScript are not seen, so check before deleting.",
+            "input_schema": none,
+        }),
+        json!({
+            "name": "selector_refs",
+            "description": "DOM lookups in JavaScript (querySelector(All), getElementById, getElementsByClassName/TagName, closest, matches, classList.*) linked to the HTML elements they can match on the pages whose <script src> loads the file, and the CSS rules that mention the class, id or tag they target. Selectors built at runtime are `unresolved` with the expression.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "Only lookups in this script file, e.g. `static/app.js`"}}
+            },
+        }),
+        json!({
+            "name": "pages",
+            "description": "Every indexed HTML page: the stylesheet files that apply to it (cascade order), its <style> block count, the indexed scripts its <script src> tags load, and the ids and classes its elements carry.",
+            "input_schema": none,
+        }),
+        json!({
+            "name": "stylesheets",
+            "description": "Every stylesheet (a .css file, or a page's <style> blocks under the page's path) with each rule's selector, line, and whether it is unused (see unused_selectors).",
+            "input_schema": none,
+        }),
+        json!({
             "name": "references",
             "description": "Every connection of any kind (call, and as depth grows: type use, value use, field, variant, impl, import) whose targets include the symbol.",
             "input_schema": sym("Fully qualified id or a unique dotted suffix"),
@@ -71,50 +112,58 @@ pub fn catalog() -> Vec<Value> {
     ]
 }
 
-/// Run one tool against the repo at `root`. Errors are plain strings meant for the caller
-/// (a human or a model) to act on.
+/// One-shot: index `root` and run one tool. Long-lived callers keep a [`Snapshot`] instead.
+/// Errors are plain strings meant for the caller (a human or a model) to act on.
 pub fn call(root: &Path, opts: &WalkOptions, name: &str, args: &Value) -> Result<Value, String> {
+    Snapshot::build(root, opts).call(name, args)
+}
+
+pub(crate) fn dispatch(snap: &Snapshot, name: &str, args: &Value) -> Result<Value, String> {
     let str_arg = |key: &str| -> Result<&str, String> {
         args.get(key)
             .and_then(Value::as_str)
             .ok_or_else(|| format!("tool `{name}` requires a string argument `{key}`"))
     };
+    let g = &snap.graph;
+    let m = &snap.markup;
     match name {
-        "overview" => Ok(overview(root, opts)),
-        "symbols" => Ok(json!(index::symbols_with(root, str_arg("query")?, opts))),
-        "callers" => {
-            let g = graph::build(&graph::load_with(root, opts), &[]);
-            Ok(json!(g.callers(str_arg("symbol")?)))
-        }
-        "callees" => {
-            let g = graph::build(&graph::load_with(root, opts), &[]);
-            Ok(json!(g.callees(str_arg("symbol")?)))
-        }
+        "overview" => Ok(overview(snap)),
+        "symbols" => Ok(json!(crate::index::filter(
+            &snap.symbols,
+            str_arg("query")?
+        ))),
+        "callers" => Ok(json!(g.callers(str_arg("symbol")?))),
+        "callees" => Ok(json!(g.callees(str_arg("symbol")?))),
         "map" => {
             let level = args.get("level").and_then(Value::as_u64).map(|l| l as u8);
             let budget = args
                 .get("budget_tokens")
                 .and_then(Value::as_u64)
                 .map(|b| b as usize);
-            Ok(json!(crate::map::summary(&crate::map::build(
-                root, opts, level, budget
-            ))))
+            Ok(json!(crate::map::summary(&snap.map(level, budget))))
         }
-        "references" => {
-            let g = graph::build(&graph::load_with(root, opts), &[]);
-            Ok(json!(g.references(str_arg("symbol")?)))
+        "matched_elements" => Ok(json!(m.matched_elements(str_arg("selector")?))),
+        "matching_rules" => {
+            let element = str_arg("element")?;
+            let (path, line) = element
+                .rsplit_once(':')
+                .and_then(|(p, l)| Some((p, l.parse::<usize>().ok()?)))
+                .ok_or_else(|| format!("`element` must be `path:line`, got `{element}`"))?;
+            Ok(json!(m.matching_rules(path, line)))
         }
-        "edges" => Ok(json!(
-            graph::build(&graph::load_with(root, opts), &[]).edges
+        "unused_selectors" => Ok(json!(m.unused_selectors())),
+        "selector_refs" => Ok(json!(
+            m.selector_refs(args.get("path").and_then(Value::as_str))
         )),
-        "unindexed_files" => {
-            let w = walk::walk(root, opts);
-            Ok(json!(w
-                .unindexed
-                .iter()
-                .map(|s| json!({"path": s.rel, "reason": s.reason.label()}))
-                .collect::<Vec<_>>()))
-        }
+        "pages" => Ok(json!(m.pages())),
+        "stylesheets" => Ok(json!(m.stylesheets())),
+        "references" => Ok(json!(g.references(str_arg("symbol")?))),
+        "edges" => Ok(json!(g.edges)),
+        "unindexed_files" => Ok(json!(snap
+            .unindexed
+            .iter()
+            .map(|s| json!({"path": s.rel, "reason": s.reason.label()}))
+            .collect::<Vec<_>>())),
         _ => Err(format!(
             "unknown tool `{name}`; available: {}",
             catalog()
@@ -126,19 +175,17 @@ pub fn call(root: &Path, opts: &WalkOptions, name: &str, args: &Value) -> Result
     }
 }
 
-fn overview(root: &Path, opts: &WalkOptions) -> Value {
-    let w = walk::walk(root, opts);
-    let sources = graph::load_with(root, opts);
+fn overview(snap: &Snapshot) -> Value {
     let mut symbols: BTreeMap<&str, usize> = BTreeMap::new();
-    for s in index::symbols_with(root, "", opts) {
+    for s in &snap.symbols {
         *symbols.entry(s.kind).or_default() += 1;
     }
     let mut edges: BTreeMap<&str, usize> = BTreeMap::new();
-    for e in &graph::build(&sources, &[]).edges {
+    for e in &snap.graph.edges {
         *edges.entry(e.state.label()).or_default() += 1;
     }
     json!({
-        "files": {"indexed": w.indexed.len(), "unindexed": w.unindexed.len()},
+        "files": {"indexed": snap.sources.len(), "unindexed": snap.unindexed.len()},
         "symbols": symbols,
         "edges": edges,
     })

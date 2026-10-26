@@ -154,6 +154,8 @@ enum Lookup {
     External(String),
     Unindexed(String),
     NotInModule(String, String),
+    /// Several files sharing the global scope define the name.
+    Globals(Vec<String>),
     Missing,
 }
 
@@ -351,6 +353,22 @@ impl Index<'_> {
                 }
             }
         }
+        if facts.shares_globals && !name.contains('.') {
+            let ids: Vec<String> = self
+                .modules
+                .iter()
+                .filter(|(m, (l, f, _))| {
+                    f.shares_globals && l.name() == lang.name() && m.as_str() != module
+                })
+                .map(|(m, _)| qualify(m, name))
+                .filter(|id| self.symbols.contains_key(id))
+                .collect();
+            match ids.len() {
+                0 => {}
+                1 => return Lookup::Def(ids.into_iter().next().unwrap()),
+                _ => return Lookup::Globals(ids),
+            }
+        }
         if lang.is_builtin(name) {
             return Lookup::External("builtin".into());
         }
@@ -519,6 +537,16 @@ impl Index<'_> {
             .chars()
             .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
         {
+            // `document.querySelector(..).remove`: whatever an external root returns is external too.
+            let root: String = callee
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !root.is_empty() && !recv_local {
+                if let Lookup::External(ev) = self.lookup(module, &root) {
+                    return Outcome::External(ev);
+                }
+            }
             return Outcome::Unresolved("callee is a dynamic expression".into());
         }
         let segs: Vec<&str> = callee.split('.').collect();
@@ -923,6 +951,22 @@ impl Index<'_> {
             Lookup::NotInModule(m, n) => {
                 Outcome::Unresolved(format!("`{n}` is not defined in module `{m}`"))
             }
+            Lookup::Globals(ids) if rest.is_empty() => Outcome::Candidate(ids),
+            Lookup::Globals(ids) => {
+                let found: Vec<String> = ids
+                    .iter()
+                    .filter_map(|id| self.walk_members(id, rest))
+                    .collect();
+                if found.is_empty() {
+                    Outcome::Unresolved(format!(
+                        "no global `{}` has a member `{}`",
+                        ids.join(","),
+                        rest.join(".")
+                    ))
+                } else {
+                    Outcome::Candidate(found)
+                }
+            }
             Lookup::Missing => unreachable!("callers filter Missing"),
         }
     }
@@ -957,7 +1001,7 @@ impl Index<'_> {
     }
 }
 
-fn qualify(module: &str, qualname: &str) -> String {
+pub fn qualify(module: &str, qualname: &str) -> String {
     if module.is_empty() {
         qualname.to_string()
     } else {

@@ -1,0 +1,6 @@
+.panel { margin: 0; }
+.sm\:p-2 { padding: 0; }
+.is\:on { color: red; }
+.m { color: blue; }
+@media print { .m { padding: 3px; } }
+.m { margin: 0 !important; }

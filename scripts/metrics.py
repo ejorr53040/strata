@@ -46,6 +46,8 @@ CORPORA = {
 }
 README = ROOT / "README.md"
 WORK = ROOT / "target/metrics"
+# strata queries start a per-repo daemon per checkout; let each exit soon after the run.
+os.environ.setdefault("STRATA_DAEMON_IDLE_TIMEOUT_SECS", "10")
 LINE_WINDOW = 8  # a call expression may start this many lines above its method name
 
 

@@ -68,9 +68,18 @@ pub fn build(root: &Path, opts: &WalkOptions, level: Option<u8>, budget: Option<
             text: f.text.clone(),
         })
         .collect();
-    let graph = graph::build(&sources, &[]);
-    let blocks = blocks(&sources);
-    let ctx = Ctx::new(&blocks, &graph);
+    build_from(&sources, &graph::build(&sources, &[]), level, budget)
+}
+
+/// [`build`] over sources already loaded and their graph.
+pub fn build_from(
+    sources: &[graph::Source],
+    graph: &graph::Graph,
+    level: Option<u8>,
+    budget: Option<usize>,
+) -> Map {
+    let blocks = blocks(sources);
+    let ctx = Ctx::new(&blocks, graph);
 
     let steps: Vec<(u8, usize, bool)> = match level {
         Some(l) => vec![(l.min(3), 200, true)],

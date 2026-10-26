@@ -1,0 +1,5 @@
+p { color: black; }
+.card { padding: 1px; }
+#main .card { color: blue; }
+.card.wide, .unused { margin: 0; }
+div > .title { font-weight: bold; }
