@@ -48,6 +48,7 @@ number and the chart below; see [Metrics](CLAUDE.md#metrics) for when to run it.
 | 13 | `e6fbfdf` | pages + stylesheets tools | 100.0% | 100.0% | 99.9% | 1 | 2 | – |
 | 14 | `f81ce40` | code-review fixes (web languages) | 100.0% | 100.0% | 99.9% | 1 | 2 | 21 (11 / 8 / 2) |
 | 15 | `561be67` | daemon + thin client (reviewed) | 100.0% | 100.0% | 100.0% | 0 | 4 | 20 (8 / 10 / 2) |
+| 16 | `126af02` | reindex (#61) | 100.0% | 100.0% | 100.0% | 0 | 4 | 8 (3 / 2 / 3) |
 
 
 <!-- metrics:end -->

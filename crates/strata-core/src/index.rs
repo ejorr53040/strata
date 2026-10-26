@@ -24,21 +24,26 @@ pub fn symbols_with(root: &Path, query: &str, opts: &WalkOptions) -> Vec<Symbol>
 
 /// Every module and definition in `sources`, in source order.
 pub fn all(sources: &[crate::graph::Source]) -> Vec<Symbol> {
+    let extracted: Vec<_> = sources.iter().filter_map(crate::graph::extract).collect();
+    from_extracted(&extracted.iter().collect::<Vec<_>>())
+}
+
+/// Like [`all`], over facts that are already parsed.
+pub(crate) fn from_extracted(files: &[&crate::graph::Extracted]) -> Vec<Symbol> {
     let mut out = Vec::new();
-    for file in sources {
+    for file in files {
         let Some(language) = lang::for_path(&file.path) else {
             continue;
         };
-        let facts = language.extract(&file.path, &file.text);
         out.push(Symbol {
             kind: "module",
             name: language.module_name(&file.path),
             path: file.path.clone(),
             line: 1,
         });
-        out.extend(facts.defs.into_iter().map(|d| Symbol {
+        out.extend(file.facts.defs.iter().map(|d| Symbol {
             kind: d.kind.label(),
-            name: d.qualname,
+            name: d.qualname.clone(),
             path: file.path.clone(),
             line: d.line,
         }));

@@ -114,6 +114,97 @@ fn an_edited_file_shows_up_in_the_next_answer() {
     );
 }
 
+/// The `<key>=<n>` counter `strata daemon status` reports.
+fn counter(status: &str, key: &str) -> usize {
+    status
+        .split_whitespace()
+        .find_map(|w| w.strip_prefix(&format!("{key}=")))
+        .unwrap_or_else(|| panic!("no `{key}=` in `{status}`"))
+        .parse()
+        .unwrap()
+}
+
+#[test]
+fn an_edit_reindexes_only_that_file_without_a_full_rebuild() {
+    let rt = Runtime::new();
+    let repo = scratch_repo();
+    rt.ok(repo.path(), &["callers", "app.util.helper"]);
+    let status = rt.ok(repo.path(), &["daemon", "status"]);
+    assert_eq!(
+        (counter(&status, "builds"), counter(&status, "reindexed")),
+        (1, 0)
+    );
+    write(
+        repo.path(),
+        "app/main.py",
+        "from app.util import helper\n\n\ndef main():\n    pass\n\n\ndef other():\n    helper()\n",
+    );
+    assert_eq!(
+        rt.ok(repo.path(), &["callers", "app.util.helper"]),
+        "resolved app.main.other -> app.util.helper app/main.py:9\n"
+    );
+    let status = rt.ok(repo.path(), &["daemon", "status"]);
+    assert_eq!(
+        (counter(&status, "builds"), counter(&status, "reindexed")),
+        (1, 1)
+    );
+}
+
+#[test]
+fn an_edit_re_resolves_edges_in_files_that_were_not_touched() {
+    let rt = Runtime::new();
+    let repo = scratch_repo();
+    let before = rt.ok(repo.path(), &["callees", "app.main.main"]);
+    assert!(
+        before.starts_with("resolved app.main.main -> app.util.helper"),
+        "{before}"
+    );
+    // Only util.py changes; the edge lives in main.py, which is not re-parsed.
+    write(repo.path(), "app/util.py", "def renamed():\n    return 1\n");
+    let after = rt.ok(repo.path(), &["callees", "app.main.main"]);
+    assert!(!after.starts_with("resolved"), "{after}");
+    let status = rt.ok(repo.path(), &["daemon", "status"]);
+    assert_eq!(
+        (counter(&status, "builds"), counter(&status, "reindexed")),
+        (1, 1)
+    );
+}
+
+#[test]
+fn concurrent_queries_after_an_edit_share_one_update() {
+    let rt = Runtime::new();
+    let repo = scratch_repo();
+    rt.ok(repo.path(), &["callers", "app.util.helper"]);
+    write(repo.path(), "app/util.py", "def helper():\n    return 2\n");
+    std::thread::scope(|s| {
+        for _ in 0..8 {
+            s.spawn(|| rt.ok(repo.path(), &["callers", "app.util.helper"]));
+        }
+    });
+    let status = rt.ok(repo.path(), &["daemon", "status"]);
+    assert_eq!(
+        (counter(&status, "builds"), counter(&status, "reindexed")),
+        (1, 1)
+    );
+}
+
+#[test]
+fn a_changed_set_of_files_falls_back_to_a_full_rebuild() {
+    let rt = Runtime::new();
+    let repo = scratch_repo();
+    rt.ok(repo.path(), &["symbols", "helper"]);
+    write(repo.path(), "app/main.py", "def main():\n    pass\n");
+    rt.ok(repo.path(), &["symbols", "helper"]);
+    std::fs::remove_file(repo.path().join("app/util.py")).unwrap();
+    assert_eq!(rt.ok(repo.path(), &["symbols", "helper"]), "");
+    let status = rt.ok(repo.path(), &["daemon", "status"]);
+    // `reindexed` counts files re-parsed since the last full build, so the fallback zeroes it.
+    assert_eq!(
+        (counter(&status, "builds"), counter(&status, "reindexed")),
+        (2, 0)
+    );
+}
+
 #[test]
 fn a_deleted_file_disappears_from_the_next_answer() {
     let rt = Runtime::new();

@@ -24,6 +24,11 @@ pub struct Snapshot {
     maps: MapCache,
     /// (file, size, mtime) of every indexed file, for [`Snapshot::is_stale`].
     stamps: Vec<(PathBuf, Option<(u64, SystemTime)>)>,
+    /// Each parsed file's facts by path, reused by [`Snapshot::refresh`].
+    extracted: HashMap<String, graph::Extracted>,
+    /// Full builds in this snapshot's lineage, and files re-parsed by refreshes since.
+    builds: usize,
+    reindexed: usize,
 }
 
 fn stamp(path: &Path) -> Option<(u64, SystemTime)> {
@@ -33,9 +38,90 @@ fn stamp(path: &Path) -> Option<(u64, SystemTime)> {
 
 impl Snapshot {
     pub fn build(root: &Path, opts: &WalkOptions) -> Snapshot {
+        let w = walk::walk(root, opts);
+        let extracted = w
+            .indexed
+            .iter()
+            .filter_map(|f| {
+                let s = graph::Source {
+                    path: f.rel.clone(),
+                    text: f.text.clone(),
+                };
+                graph::extract(&s).map(|e| (f.rel.clone(), e))
+            })
+            .collect();
+        Snapshot::assemble(root, w, extracted, 1, 0)
+    }
+
+    /// The snapshot for the tree as it is now: a refresh when only file contents changed,
+    /// otherwise a full build (counted in [`Snapshot::builds`]).
+    pub fn update(&self, root: &Path, opts: &WalkOptions) -> Snapshot {
+        self.refresh(root, opts).unwrap_or_else(|| {
+            let mut s = Snapshot::build(root, opts);
+            s.builds += self.builds;
+            s
+        })
+    }
+
+    /// Parses only the files whose text changed since this snapshot was built and
+    /// re-resolves every edge over the result. `None` when the set of files differs (one
+    /// appeared, vanished or is newly skipped): that needs a full [`Snapshot::build`].
+    fn refresh(&self, root: &Path, opts: &WalkOptions) -> Option<Snapshot> {
+        // ponytail: saves the parse only. Every refresh still walks and reads the whole tree,
+        // clones every file's facts and re-resolves all edges, so it is O(repo). #65's watcher
+        // can narrow the walk; resolving over borrowed facts removes the clone.
+        let w = walk::walk(root, opts);
+        let same_files = w.indexed.len() == self.sources.len()
+            && w.indexed
+                .iter()
+                .zip(&self.sources)
+                .all(|(a, b)| a.rel == b.path)
+            && w.unindexed.len() == self.unindexed.len()
+            && w.unindexed
+                .iter()
+                .zip(&self.unindexed)
+                .all(|(a, b)| a.rel == b.rel && a.reason == b.reason);
+        if !same_files {
+            return None;
+        }
+        let mut reindexed = 0;
+        let mut extracted = HashMap::new();
+        for (new, old) in w.indexed.iter().zip(&self.sources) {
+            let kept = (new.text == old.text)
+                .then(|| self.extracted.get(&new.rel))
+                .flatten();
+            let facts = match kept {
+                Some(e) => Some(e.clone()),
+                None => {
+                    reindexed += 1;
+                    graph::extract(&graph::Source {
+                        path: new.rel.clone(),
+                        text: new.text.clone(),
+                    })
+                }
+            };
+            if let Some(e) = facts {
+                extracted.insert(new.rel.clone(), e);
+            }
+        }
+        Some(Snapshot::assemble(
+            root,
+            w,
+            extracted,
+            self.builds,
+            self.reindexed + reindexed,
+        ))
+    }
+
+    fn assemble(
+        root: &Path,
+        w: walk::Walk,
+        extracted: HashMap<String, graph::Extracted>,
+        builds: usize,
+        reindexed: usize,
+    ) -> Snapshot {
         // ponytail: stamps are taken after the read, so an edit landing mid-build is missed
         // until the next one. #6's watcher replaces this check.
-        let w = walk::walk(root, opts);
         let stamps = w
             .indexed
             .iter()
@@ -53,15 +139,39 @@ impl Snapshot {
                 text: f.text,
             })
             .collect();
+        let (symbols, graph) = {
+            let ordered: Vec<&graph::Extracted> = sources
+                .iter()
+                .filter_map(|s| extracted.get(&s.path))
+                .collect();
+            (
+                index::from_extracted(&ordered),
+                graph::resolve(&ordered, &[]),
+            )
+        };
         Snapshot {
-            symbols: index::all(&sources),
-            graph: graph::build(&sources, &[]),
+            symbols,
+            graph,
+            // ponytail: markup (HTML/CSS) is rebuilt from every source on each refresh.
             markup: markup::build(&sources),
             sources,
             unindexed: w.unindexed,
             maps: Mutex::default(),
             stamps,
+            extracted,
+            builds,
+            reindexed,
         }
+    }
+
+    /// Full builds behind this snapshot (a refresh does not add one).
+    pub fn builds(&self) -> usize {
+        self.builds
+    }
+
+    /// Files re-parsed by refreshes since the last full build.
+    pub fn reindexed(&self) -> usize {
+        self.reindexed
     }
 
     /// Run one agent tool (see [`crate::tools::catalog`]).
