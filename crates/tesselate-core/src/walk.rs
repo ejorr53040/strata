@@ -17,7 +17,7 @@ const UNSUPPORTED_SOURCE: &[&str] = &[
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reason {
     Gitignore,
-    Tesselateignore,
+    TesselateIgnore,
     Vendored,
     UnsupportedLanguage,
     ParseFailure,
@@ -27,7 +27,7 @@ impl Reason {
     pub fn label(self) -> &'static str {
         match self {
             Reason::Gitignore => "gitignore",
-            Reason::Tesselateignore => "tesselateignore",
+            Reason::TesselateIgnore => "tesselateignore",
             Reason::Vendored => "vendored",
             Reason::UnsupportedLanguage => "unsupported-language",
             Reason::ParseFailure => "parse-failure",
@@ -102,7 +102,7 @@ pub fn walk(root: &Path, opts: &WalkOptions) -> Walk {
         let reason = if included(&rel_s, opts) {
             None
         } else if !not_tesselateignored.contains(&rel) {
-            Some(Reason::Tesselateignore)
+            Some(Reason::TesselateIgnore)
         } else if !not_gitignored.contains(&rel) {
             Some(Reason::Gitignore)
         } else if is_vendored(&rel) {
