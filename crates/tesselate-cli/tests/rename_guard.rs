@@ -16,8 +16,6 @@ const ALLOWED: &[&str] = &[
     // Append-only measurement series: rows are never rewritten.
     "docs/metrics/history.jsonl",
     "docs/metrics/history-cirrocumulus.jsonl",
-    "docs/metrics/chart.svg",
-    "docs/metrics/chart-cirrocumulus.svg",
 ];
 
 /// Directories that are not project content: VCS data, build output, agent worktrees.
@@ -29,6 +27,23 @@ fn repo_root() -> PathBuf {
         .nth(2)
         .expect("crates/<crate> sits two levels below the repo root")
         .to_path_buf()
+}
+
+/// `text` without the `<!-- metrics*:start -->` ... `:end -->` blocks the metrics script
+/// renders from the append-only series, whose old rows keep the name they were recorded under.
+fn without_generated_blocks(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("<!-- metrics") {
+        out.push_str(&rest[..start]);
+        let tail = &rest[start..];
+        match tail.find(":end -->") {
+            Some(end) => rest = &tail[end + ":end -->".len()..],
+            None => return out,
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 fn collect(dir: &Path, root: &Path, offenders: &mut Vec<String>) {
@@ -56,7 +71,10 @@ fn collect(dir: &Path, root: &Path, offenders: &mut Vec<String>) {
         }
         // Binary files are not project text.
         if let Ok(text) = std::fs::read_to_string(&path) {
-            let hits = text.to_lowercase().matches(OLD_NAME).count();
+            let hits = without_generated_blocks(&text)
+                .to_lowercase()
+                .matches(OLD_NAME)
+                .count();
             if hits > 0 {
                 offenders.push(format!("{rel} ({hits})"));
             }
