@@ -35,6 +35,22 @@ impl Runtime {
         String::from_utf8(out.stdout).unwrap()
     }
 
+    /// Like [`Runtime::ok`], with one environment variable (inherited by a daemon it starts).
+    fn ok_env(&self, repo: &Path, args: &[&str], env: (&str, &str)) -> String {
+        let out = common::strata_in_runtime(self.0.path())
+            .env(env.0, env.1)
+            .args(args)
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout).unwrap()
+    }
+
     /// The pid `strata daemon status` reports, or None when no daemon runs for `repo`.
     fn pid(&self, repo: &Path) -> Option<u32> {
         let status = self.ok(repo, &["daemon", "status"]);
@@ -202,6 +218,65 @@ fn a_changed_set_of_files_falls_back_to_a_full_rebuild() {
     assert_eq!(
         (counter(&status, "builds"), counter(&status, "reindexed")),
         (2, 0)
+    );
+}
+
+#[test]
+fn a_new_file_appears_in_the_next_answer_without_stopping_the_daemon() {
+    let rt = Runtime::new();
+    let repo = scratch_repo();
+    assert_eq!(rt.ok(repo.path(), &["symbols", "brand_new"]), "");
+    let pid = rt.pid(repo.path());
+    write(
+        repo.path(),
+        "app/extra.py",
+        "def brand_new():\n    return 3\n",
+    );
+    assert_eq!(
+        rt.ok(repo.path(), &["symbols", "brand_new"]),
+        "function brand_new app/extra.py:1\n"
+    );
+    assert_eq!(rt.pid(repo.path()), pid);
+}
+
+#[test]
+fn lost_watcher_events_fall_back_to_a_full_rebuild() {
+    let rt = Runtime::new();
+    let repo = scratch_repo();
+    // The hook makes the daemon treat every watcher event as lost.
+    let env = ("STRATA_WATCHER_LOSE_EVENTS", "1");
+    rt.ok_env(repo.path(), &["symbols", "brand_new"], env);
+    write(
+        repo.path(),
+        "app/extra.py",
+        "def brand_new():\n    return 3\n",
+    );
+    assert_eq!(
+        rt.ok_env(repo.path(), &["symbols", "brand_new"], env),
+        "function brand_new app/extra.py:1\n"
+    );
+    let status = rt.ok(repo.path(), &["daemon", "status"]);
+    assert_eq!(
+        (counter(&status, "builds"), counter(&status, "reindexed")),
+        (2, 0)
+    );
+}
+
+#[test]
+fn a_renamed_file_leaves_no_stale_entries() {
+    let rt = Runtime::new();
+    let repo = scratch_repo();
+    assert!(rt
+        .ok(repo.path(), &["symbols", "helper"])
+        .contains("app/util.py"));
+    std::fs::rename(
+        repo.path().join("app/util.py"),
+        repo.path().join("app/tools.py"),
+    )
+    .unwrap();
+    assert_eq!(
+        rt.ok(repo.path(), &["symbols", "helper"]),
+        "function helper app/tools.py:1\n"
     );
 }
 
