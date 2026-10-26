@@ -56,11 +56,15 @@ impl Snapshot {
     /// The snapshot for the tree as it is now: a refresh when only file contents changed,
     /// otherwise a full build (counted in [`Snapshot::builds`]).
     pub fn update(&self, root: &Path, opts: &WalkOptions) -> Snapshot {
-        self.refresh(root, opts).unwrap_or_else(|| {
-            let mut s = Snapshot::build(root, opts);
-            s.builds += self.builds;
-            s
-        })
+        self.refresh(root, opts)
+            .unwrap_or_else(|| self.rebuild(root, opts))
+    }
+
+    /// A full build that carries this snapshot's [`Snapshot::builds`] count forward.
+    pub fn rebuild(&self, root: &Path, opts: &WalkOptions) -> Snapshot {
+        let mut s = Snapshot::build(root, opts);
+        s.builds += self.builds;
+        s
     }
 
     /// Parses only the files whose text changed since this snapshot was built and
