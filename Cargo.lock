@@ -678,53 +678,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
-name = "strata-agent"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "strata-config",
- "tempfile",
- "ureq",
-]
-
-[[package]]
-name = "strata-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "notify",
- "serde_json",
- "strata-agent",
- "strata-config",
- "strata-core",
- "tempfile",
-]
-
-[[package]]
-name = "strata-config"
-version = "0.1.0"
-dependencies = [
- "toml",
-]
-
-[[package]]
-name = "strata-core"
-version = "0.1.0"
-dependencies = [
- "ignore",
- "serde",
- "serde_json",
- "strata-config",
- "tempfile",
- "tree-sitter",
- "tree-sitter-css",
- "tree-sitter-html",
- "tree-sitter-javascript",
- "tree-sitter-python",
- "tree-sitter-rust",
-]
-
-[[package]]
 name = "streaming-iterator"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -764,6 +717,53 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "tesselate-agent"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tempfile",
+ "tesselate-config",
+ "ureq",
+]
+
+[[package]]
+name = "tesselate-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "notify",
+ "serde_json",
+ "tempfile",
+ "tesselate-agent",
+ "tesselate-config",
+ "tesselate-core",
+]
+
+[[package]]
+name = "tesselate-config"
+version = "0.1.0"
+dependencies = [
+ "toml",
+]
+
+[[package]]
+name = "tesselate-core"
+version = "0.1.0"
+dependencies = [
+ "ignore",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tesselate-config",
+ "tree-sitter",
+ "tree-sitter-css",
+ "tree-sitter-html",
+ "tree-sitter-javascript",
+ "tree-sitter-python",
+ "tree-sitter-rust",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/strata-config", "crates/strata-core", "crates/strata-agent", "crates/strata-cli"]
+members = ["crates/tesselate-config", "crates/tesselate-core", "crates/tesselate-agent", "crates/tesselate-cli"]
 
 [workspace.package]
 version = "0.1.0"

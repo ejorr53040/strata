@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""Measure strata against itself and keep a history, chart and README table up to date.
+"""Measure tesselate against itself and keep a history, chart and README table up to date.
 
     scripts/metrics.py run [--rev HEAD] [--corpus self|cirrocumulus] [--corpus-rev HEAD] [--label TEXT]
                             [--review standards=N,spec=N,correctness=N]
     scripts/metrics.py render
 
 `run` checks out <rev> into a throwaway worktree (so results are tied to a commit, and
-uncommitted changes are NOT measured), builds strata there, indexes the checkout, and compares
+uncommitted changes are NOT measured), builds tesselate there, indexes the checkout, and compares
 the result with rust-analyzer's SCIP index of the same checkout, which is the independent
 ground truth. It appends (or replaces, for the same rev+label) one line in
 docs/metrics/history.jsonl, then re-renders docs/metrics/chart.svg and the README table.
 
 Recall definitions (all against SCIP, Rust only; fixtures are excluded from both sides):
-  symbols    fraction of SCIP fn/method/type definitions that strata lists at the same path:line
-  call_site  fraction of SCIP call references to workspace functions where strata recorded an
+  symbols    fraction of SCIP fn/method/type definitions that tesselate lists at the same path:line
+  call_site  fraction of SCIP call references to workspace functions where tesselate recorded an
              edge near that line naming the same function
-  target     as call_site, but strata's resolved/candidate targets must include the right function
-  false_external  call sites to workspace functions that strata only reported as `external`
+  target     as call_site, but tesselate's resolved/candidate targets must include the right function
+  false_external  call sites to workspace functions that tesselate only reported as `external`
 Stdlib only; needs cargo, git and rust-analyzer on PATH.
 """
 
@@ -32,22 +32,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 METRICS = ROOT / "docs/metrics"
-# `self` scores strata on its own commit; any other corpus is an external repo scored with the
-# strata build under test. Add a corpus by adding an entry (its history/chart files follow).
+# `self` scores tesselate on its own commit; any other corpus is an external repo scored with the
+# tesselate build under test. Add a corpus by adding an entry (its history/chart files follow).
 CORPORA = {
-    "self": {"title": "strata (self-analysis)", "path": None},
+    "self": {"title": "tesselate (self-analysis)", "path": None},
     "cirrocumulus": {
         "title": "cirrocumulus (external corpus)",
         "path": Path(os.environ.get("CIRRO_PATH", Path.home() / "cs/cirrocumulus")),
         # The commit the comparable series is scored on. Rows on other commits of the corpus
-        # are kept (they show how strata does on code it never saw) but listed apart.
+        # are kept (they show how tesselate does on code it never saw) but listed apart.
         "pin": "a8cf4eb",
     },
 }
 README = ROOT / "README.md"
 WORK = ROOT / "target/metrics"
-# strata queries start a per-repo daemon per checkout; let each exit soon after the run.
-os.environ.setdefault("STRATA_DAEMON_IDLE_TIMEOUT_SECS", "10")
+# tesselate queries start a per-repo daemon per checkout; let each exit soon after the run.
+os.environ.setdefault("TESSELATE_DAEMON_IDLE_TIMEOUT_SECS", "10")
 LINE_WINDOW = 8  # a call expression may start this many lines above its method name
 
 
@@ -149,7 +149,7 @@ def is_type(symbol):
 # ---------------------------------------------------------------- measuring one revision
 
 
-def strata_json(binary, root, *args):
+def tesselate_json(binary, root, *args):
     return json.loads(sh([binary, *args], cwd=root))
 
 
@@ -159,11 +159,11 @@ def collect_edges(binary, root, symbols):
     )
     if dump.returncode == 0:
         return json.loads(dump.stdout)
-    # Older strata builds have no `edges` tool: gather call edges per function instead.
+    # Older tesselate builds have no `edges` tool: gather call edges per function instead.
     seen, edges = set(), []
     names = sorted({s["name"] for s in symbols if s["kind"] in ("function", "method")})
     for name in names:
-        for e in strata_json(binary, root, "callees", name, "--json"):
+        for e in tesselate_json(binary, root, "callees", name, "--json"):
             key = (e["path"], e["line"], e["callee"])
             if key not in seen:
                 seen.add(key)
@@ -172,7 +172,7 @@ def collect_edges(binary, root, symbols):
 
 
 def target_matches(target, desc, fn_name):
-    """Does a strata target id (`a.b.Type.name`) name the SCIP definition `desc`?
+    """Does a tesselate target id (`a.b.Type.name`) name the SCIP definition `desc`?
 
     SCIP spells a definition as namespaces and types (`lang/rust/State#text().`). Every
     namespace and type in it must appear in the target; nested fns are filed under their
@@ -195,7 +195,7 @@ REF_CATS = (
     "call", "value", "type", "field", "variant", "const", "module", "import",
     "impl_block", "impl_method",
 )
-# Edge kinds that count as strata having seen a reference of that category.
+# Edge kinds that count as tesselate having seen a reference of that category.
 KINDS = {
     "call": {"call"},
     "value": {"value"},
@@ -298,7 +298,7 @@ def impl_truth(root, rels):
 
 
 def parse_map(text):
-    """Read a `strata map` back into items: (path, kind, name, line, indent, calls, callers)."""
+    """Read a `tesselate map` back into items: (path, kind, name, line, indent, calls, callers)."""
     items, path, cur = [], None, None
     for raw in text.splitlines()[1:]:
         if raw.startswith("== "):
@@ -676,13 +676,13 @@ def measure(rev, corpus, corpus_rev, label, verbose):
     sh(["git", "worktree", "add", "--detach", str(wt), sha], cwd=ROOT)
     try:
         env = {**os.environ, "CARGO_TARGET_DIR": str(WORK / "build")}
-        sh(["cargo", "build", "-q", "-p", "strata-cli"], cwd=wt, env=env)
-        binary = str(WORK / "build/debug/strata")
+        sh(["cargo", "build", "-q", "-p", "tesselate-cli"], cwd=wt, env=env)
+        binary = str(WORK / "build/debug/tesselate")
         root, corpus_sha, corpus_subject, ra_env = prepare_corpus(
             corpus, spec, wt, corpus_rev
         )
 
-        symbols = strata_json(binary, root, "symbols", "", "--json")
+        symbols = tesselate_json(binary, root, "symbols", "", "--json")
         edges = collect_edges(binary, root, symbols)
         states = {}
         for e in edges:
@@ -834,7 +834,7 @@ def qa_cell(mp):
 
 def table_external(runs):
     head = (
-        "| Run | strata | corpus | What changed | Definitions | References seen | References right "
+        "| Run | tesselate | corpus | What changed | Definitions | References seen | References right "
         "| References exact | False external | Unresolved | Map tokens (source) | Map QA where / fields / callers |\n"
         "| ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n"
     )
@@ -857,8 +857,8 @@ def other_table(others):
     if not others:
         return ""
     out = (
-        "\nOther commits of the corpus (code strata was never fixed against; not part of the "
-        "series above):\n\n| strata | corpus | Definitions | References seen | References right "
+        "\nOther commits of the corpus (code tesselate was never fixed against; not part of the "
+        "series above):\n\n| tesselate | corpus | Definitions | References seen | References right "
         "| Calls right | Unresolved |\n| --- | --- | ---: | ---: | ---: | ---: | ---: |\n"
     )
     for r in others:
@@ -876,7 +876,7 @@ def depth_table(run):
     if not d:
         return ""
     out = (
-        f"Latest run (`{run['rev']}`) by connection type. *seen*: strata recorded a connection "
+        f"Latest run (`{run['rev']}`) by connection type. *seen*: tesselate recorded a connection "
         "at that spot; *right*: and its targets include the correct definition.\n\n"
         "| Connection | Total | Seen | Right | Exact |\n| --- | ---: | ---: | ---: | ---: |\n"
     )
@@ -1049,9 +1049,9 @@ def render_corpus(corpus, all_runs):
     intro = ""
     if external:
         intro = (
-            f"### {spec['title']}\n\nThe same scoring on a repository outside strata. Run 1 is "
-            "strata's first look at it, before any cirrocumulus-specific fix; later runs include "
-            "fixes for the gaps run 1 exposed, so read them as tuned, not blind. `strata` is the "
+            f"### {spec['title']}\n\nThe same scoring on a repository outside tesselate. Run 1 is "
+            "tesselate's first look at it, before any cirrocumulus-specific fix; later runs include "
+            "fixes for the gaps run 1 exposed, so read them as tuned, not blind. `tesselate` is the "
             "commit under test, `corpus` the commit of the repo it indexed.\n\n"
         )
     block = (
@@ -1093,7 +1093,7 @@ def main():
         "run", help="measure a revision and update history, chart and README"
     )
     r.add_argument(
-        "--rev", default="HEAD", help="strata commit to build and test (default HEAD)"
+        "--rev", default="HEAD", help="tesselate commit to build and test (default HEAD)"
     )
     r.add_argument(
         "--corpus", default="self", choices=sorted(CORPORA), help="what to index"
