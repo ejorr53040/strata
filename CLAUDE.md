@@ -1,6 +1,6 @@
 # strata
 
-Clean-room, compiler-backed code intelligence in Rust: a tree-sitter index (Python, Rust, C/C++, plus HTML/CSS/DOM-JS) served by a per-repo daemon to a CLI, MCP server, LSP server + Neovim plugin, and a headless agent. Independently designed from public descriptions of code-intelligence tools; contains no code or assets from any other product.
+Clean-room, compiler-backed code intelligence in Rust: a tree-sitter index (Rust, Python, JavaScript, plus HTML/CSS and the DOM lookups JS makes) served by a per-repo daemon to a CLI. Planned, not built: C/C++, an MCP server, an LSP server + Neovim plugin, and a headless agent (`strata ask`). Independently designed from public descriptions of code-intelligence tools; contains no code or assets from any other product.
 
 ## Agent skills
 

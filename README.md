@@ -1,7 +1,7 @@
 # strata
 
-Clean-room, compiler-backed code intelligence in Rust: a tree-sitter index (Python and Rust
-today; C/C++ and HTML/CSS/DOM-JS planned) that answers who-defines, who-calls and
+Clean-room, compiler-backed code intelligence in Rust: a tree-sitter index (Rust, Python,
+JavaScript and HTML/CSS today; C/C++ planned) that answers who-defines, who-calls and
 what-breaks questions for humans and agents. Independently designed from public descriptions
 of code-intelligence tools; it contains no code or assets from any other product.
 
