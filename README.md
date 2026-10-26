@@ -41,7 +41,7 @@ number and the chart below; see [Metrics](CLAUDE.md#metrics) for when to run it.
 | 6 | `7035f7a` | depth 6b: noise removed | 100.0% | 99.7% | 99.7% | 0 | 2 | – |
 | 7 | `2027020` | depth 6c: turbofish chains, #[path] mods | 100.0% | 100.0% | 100.0% | 0 | 2 | – |
 | 8 | `b319c9b` | depth 8: receiver typing | 100.0% | 100.0% | 100.0% | 0 | 2 | – |
-| 9 | `b39716f` | depth 9: tesselate map | 100.0% | 100.0% | 99.9% | 1 | 2 | – |
+| 9 | `b39716f` | depth 9: strata map | 100.0% | 100.0% | 99.9% | 1 | 2 | – |
 | 10 | `fe13479` | JS plugin + shared globals + external-rooted chains | 100.0% | 100.0% | 99.9% | 1 | 2 | – |
 | 11 | `35ccb60` | HTML/CSS markup index; walker indexes html/css | 100.0% | 100.0% | 99.9% | 1 | 2 | – |
 | 12 | `2dd0724` | DOM-JS linking (selector_refs) | 100.0% | 100.0% | 99.9% | 1 | 2 | – |
@@ -50,6 +50,7 @@ number and the chart below; see [Metrics](CLAUDE.md#metrics) for when to run it.
 | 15 | `561be67` | daemon + thin client (reviewed) | 100.0% | 100.0% | 100.0% | 0 | 4 | 20 (8 / 10 / 2) |
 | 16 | `126af02` | reindex (#61) | 100.0% | 100.0% | 100.0% | 0 | 4 | 8 (3 / 2 / 3) |
 | 17 | `599d586` | watcher (#65) | 100.0% | 100.0% | 100.0% | 0 | 4 | 10 (5 / 3 / 2) |
+| 18 | `5d8b78e` | rename to tesselate (#70) | 100.0% | 100.0% | 100.0% | 0 | 4 | 8 (6 / 2 / 0) |
 
 
 <!-- metrics:end -->
@@ -81,15 +82,16 @@ The same scoring on a repository outside tesselate. Run 1 is tesselate's first l
 | 15 | `68dec6e` | `a8cf4eb` | depth 8: receiver typing | 100.0% | 100.0% | 99.9% | 86.0% | 2 | 1 | – | – |
 | 16 | `9d59845` | `a8cf4eb` | depth 8b: impls outside the type's module | 100.0% | 100.0% | 99.9% | 86.0% | 2 | 1 | – | – |
 | 17 | `b319c9b` | `a8cf4eb` | depth 8c: path-vs-local fixes | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | – | – |
-| 18 | `b39716f` | `a8cf4eb` | depth 9: tesselate map (all levels fit) | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
+| 18 | `b39716f` | `a8cf4eb` | depth 9: strata map (all levels fit) | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
 | 19 | `fe13479` | `a8cf4eb` | JS plugin + shared globals + external-rooted chains | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
 | 20 | `35ccb60` | `a8cf4eb` | HTML/CSS markup index; walker indexes html/css | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
 | 21 | `2dd0724` | `a8cf4eb` | DOM-JS linking (selector_refs) | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
 | 22 | `e6fbfdf` | `a8cf4eb` | pages + stylesheets tools | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
 | 23 | `f81ce40` | `a8cf4eb` | code-review fixes (web languages) | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
 | 24 | `561be67` | `a8cf4eb` | daemon + thin client | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
+| 25 | `2368492` | `a8cf4eb` | rename to tesselate (#70) | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,895 (82,151) | 100% / 92% / 96% |
 
-Latest run (`561be67`) by connection type. *seen*: tesselate recorded a connection at that spot; *right*: and its targets include the correct definition.
+Latest run (`2368492`) by connection type. *seen*: tesselate recorded a connection at that spot; *right*: and its targets include the correct definition.
 
 | Connection | Total | Seen | Right | Exact |
 | --- | ---: | ---: | ---: | ---: |
