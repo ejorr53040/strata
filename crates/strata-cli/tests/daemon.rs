@@ -193,9 +193,12 @@ fn a_changed_set_of_files_falls_back_to_a_full_rebuild() {
     let rt = Runtime::new();
     let repo = scratch_repo();
     rt.ok(repo.path(), &["symbols", "helper"]);
+    write(repo.path(), "app/main.py", "def main():\n    pass\n");
+    rt.ok(repo.path(), &["symbols", "helper"]);
     std::fs::remove_file(repo.path().join("app/util.py")).unwrap();
     assert_eq!(rt.ok(repo.path(), &["symbols", "helper"]), "");
     let status = rt.ok(repo.path(), &["daemon", "status"]);
+    // `reindexed` counts files re-parsed since the last full build, so the fallback zeroes it.
     assert_eq!(
         (counter(&status, "builds"), counter(&status, "reindexed")),
         (2, 0)

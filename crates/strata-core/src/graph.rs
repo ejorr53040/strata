@@ -169,13 +169,13 @@ enum Outcome {
 
 /// One file's parsed facts, kept so an edit elsewhere re-resolves without re-parsing it.
 #[derive(Debug, Clone)]
-pub struct Extracted {
+pub(crate) struct Extracted {
     pub path: String,
     pub facts: FileFacts,
 }
 
 /// Parse one source; `None` when no language plugin handles it.
-pub fn extract(s: &Source) -> Option<Extracted> {
+pub(crate) fn extract(s: &Source) -> Option<Extracted> {
     let lang = lang::for_path(&s.path)?;
     Some(Extracted {
         path: s.path.clone(),
@@ -190,7 +190,7 @@ pub fn build(sources: &[Source], unindexed_modules: &[String]) -> Graph {
 
 /// Tie every call and reference in `files` to its targets. Pure over the facts, so any edit
 /// can re-resolve every file's edges (the neighbours of a changed definition included).
-pub fn resolve(files: &[&Extracted], unindexed_modules: &[String]) -> Graph {
+pub(crate) fn resolve(files: &[&Extracted], unindexed_modules: &[String]) -> Graph {
     let mut modules = BTreeMap::new();
     for e in files {
         if let Some(lang) = lang::for_path(&e.path) {

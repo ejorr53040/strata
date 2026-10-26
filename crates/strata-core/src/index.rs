@@ -29,7 +29,7 @@ pub fn all(sources: &[crate::graph::Source]) -> Vec<Symbol> {
 }
 
 /// Like [`all`], over facts that are already parsed.
-pub fn from_extracted(files: &[&crate::graph::Extracted]) -> Vec<Symbol> {
+pub(crate) fn from_extracted(files: &[&crate::graph::Extracted]) -> Vec<Symbol> {
     let mut out = Vec::new();
     for file in files {
         let Some(language) = lang::for_path(&file.path) else {

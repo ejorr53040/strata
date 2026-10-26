@@ -59,7 +59,6 @@ impl Snapshot {
         self.refresh(root, opts).unwrap_or_else(|| {
             let mut s = Snapshot::build(root, opts);
             s.builds += self.builds;
-            s.reindexed = self.reindexed;
             s
         })
     }
@@ -68,6 +67,9 @@ impl Snapshot {
     /// re-resolves every edge over the result. `None` when the set of files differs (one
     /// appeared, vanished or is newly skipped): that needs a full [`Snapshot::build`].
     fn refresh(&self, root: &Path, opts: &WalkOptions) -> Option<Snapshot> {
+        // ponytail: saves the parse only. Every refresh still walks and reads the whole tree,
+        // clones every file's facts and re-resolves all edges, so it is O(repo). #65's watcher
+        // can narrow the walk; resolving over borrowed facts removes the clone.
         let w = walk::walk(root, opts);
         let same_files = w.indexed.len() == self.sources.len()
             && w.indexed
@@ -78,7 +80,7 @@ impl Snapshot {
             && w.unindexed
                 .iter()
                 .zip(&self.unindexed)
-                .all(|(a, b)| a.rel == b.rel);
+                .all(|(a, b)| a.rel == b.rel && a.reason == b.reason);
         if !same_files {
             return None;
         }
