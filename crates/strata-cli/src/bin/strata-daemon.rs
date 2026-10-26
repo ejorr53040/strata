@@ -133,8 +133,10 @@ impl Daemon {
         let snaps = self.snapshots.lock().unwrap();
         let index = match snaps.get(include) {
             Some((s, built)) => format!(
-                " files={} age={}s",
+                " files={} builds={} reindexed={} age={}s",
                 s.indexed_files(),
+                s.builds(),
+                s.reindexed(),
                 built.elapsed().as_secs()
             ),
             None => " (not indexed yet)".into(),
@@ -154,17 +156,19 @@ impl Daemon {
                 return s;
             }
         }
-        // Builds are serialized: concurrent queries on a stale index wait for one rebuild.
+        // Updates are serialized: concurrent queries on a stale index wait for one update.
         let mut snaps = self.snapshots.lock().unwrap();
-        if let Some((s, _)) = snaps.get(include) {
+        let prev = snaps.get(include).map(|(s, _)| s.clone());
+        if let Some(s) = &prev {
             if !s.is_stale() {
                 return s.clone();
             }
         }
-        let s = Arc::new(Snapshot::build(
-            &self.root,
-            &WalkOptions::from_config_value(include),
-        ));
+        let opts = WalkOptions::from_config_value(include);
+        let s = Arc::new(match prev {
+            Some(p) => p.update(&self.root, &opts),
+            None => Snapshot::build(&self.root, &opts),
+        });
         if snaps.len() >= MAX_SNAPSHOTS && !snaps.contains_key(include) {
             let oldest = snaps
                 .iter()
