@@ -1,4 +1,4 @@
-# strata
+# tesselate
 
 Clean-room, compiler-backed code intelligence in Rust: a tree-sitter index (Rust, Python,
 JavaScript and HTML/CSS today; C/C++ planned) that answers who-defines, who-calls and
@@ -7,29 +7,29 @@ of code-intelligence tools; it contains no code or assets from any other product
 
 ```
 cargo build
-./target/debug/strata symbols walk          # find definitions
-./target/debug/strata callers walk.walk     # who calls it, with edge states
-./target/debug/strata call overview '{}'    # agent tool surface (JSON); see `strata guide`
+./target/debug/tesselate symbols walk          # find definitions
+./target/debug/tesselate callers walk.walk     # who calls it, with edge states
+./target/debug/tesselate call overview '{}'    # agent tool surface (JSON); see `tesselate guide`
 ```
 
-Agent usage lives in [`docs/agents/using-strata.md`](docs/agents/using-strata.md).
+Agent usage lives in [`docs/agents/using-tesselate.md`](docs/agents/using-tesselate.md).
 
 ## Self-analysis metrics
 
-strata indexes its own source on every milestone and is scored against rust-analyzer's SCIP
+tesselate indexes its own source on every milestone and is scored against rust-analyzer's SCIP
 index of the same commit (an independent ground truth). `scripts/metrics.py` produces every
 number and the chart below; see [Metrics](CLAUDE.md#metrics) for when to run it.
 
-- **Symbol recall**: share of rust-analyzer's fn/method/type definitions that strata lists.
-- **Call-site recall**: share of calls to workspace functions where strata recorded an edge.
+- **Symbol recall**: share of rust-analyzer's fn/method/type definitions that tesselate lists.
+- **Call-site recall**: share of calls to workspace functions where tesselate recorded an edge.
 - **Target recall**: as above, but the edge's resolved/candidate targets include the right function.
-- **False external**: calls to workspace functions that strata reported as `external`.
+- **False external**: calls to workspace functions that tesselate reported as `external`.
 - **Review findings**: items raised by the two-axis code review (standards / spec) plus
   correctness or security notes found along the way. `–` means no review was run for that commit.
 
 <!-- metrics:start -->
 
-![strata (self-analysis) chart](docs/metrics/chart.svg)
+![tesselate (self-analysis) chart](docs/metrics/chart.svg)
 
 | Run | Rev | What changed | Symbol recall | Call-site recall | Target recall | False external | Unresolved | Review findings (std / spec / correctness) |
 | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
@@ -50,6 +50,7 @@ number and the chart below; see [Metrics](CLAUDE.md#metrics) for when to run it.
 | 15 | `561be67` | daemon + thin client (reviewed) | 100.0% | 100.0% | 100.0% | 0 | 4 | 20 (8 / 10 / 2) |
 | 16 | `126af02` | reindex (#61) | 100.0% | 100.0% | 100.0% | 0 | 4 | 8 (3 / 2 / 3) |
 | 17 | `599d586` | watcher (#65) | 100.0% | 100.0% | 100.0% | 0 | 4 | 10 (5 / 3 / 2) |
+| 18 | `5d8b78e` | rename to tesselate (#70) | 100.0% | 100.0% | 100.0% | 0 | 4 | 8 (6 / 2 / 0) |
 
 
 <!-- metrics:end -->
@@ -58,11 +59,11 @@ number and the chart below; see [Metrics](CLAUDE.md#metrics) for when to run it.
 
 ### cirrocumulus (external corpus)
 
-The same scoring on a repository outside strata. Run 1 is strata's first look at it, before any cirrocumulus-specific fix; later runs include fixes for the gaps run 1 exposed, so read them as tuned, not blind. `strata` is the commit under test, `corpus` the commit of the repo it indexed.
+The same scoring on a repository outside tesselate. Run 1 is tesselate's first look at it, before any cirrocumulus-specific fix; later runs include fixes for the gaps run 1 exposed, so read them as tuned, not blind. `tesselate` is the commit under test, `corpus` the commit of the repo it indexed.
 
 ![cirrocumulus (external corpus) chart](docs/metrics/chart-cirrocumulus.svg)
 
-| Run | strata | corpus | What changed | Definitions | References seen | References right | References exact | False external | Unresolved | Map tokens (source) | Map QA where / fields / callers |
+| Run | tesselate | corpus | What changed | Definitions | References seen | References right | References exact | False external | Unresolved | Map tokens (source) | Map QA where / fields / callers |
 | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | 1 | `a924027` | `a8cf4eb` | baseline, before cirrocumulus fixes | 44.9% | 22.6% | 22.2% | – | 0 | 11 | – | – |
 | 2 | `d3b8b09` | `a8cf4eb` | gaps fixed: shadowing, globs, json macros, derives, turbofish, aliases, ioctl | 45.4% | 22.9% | 22.9% | – | 0 | 0 | – | – |
@@ -88,8 +89,9 @@ The same scoring on a repository outside strata. Run 1 is strata's first look at
 | 22 | `e6fbfdf` | `a8cf4eb` | pages + stylesheets tools | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
 | 23 | `f81ce40` | `a8cf4eb` | code-review fixes (web languages) | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
 | 24 | `561be67` | `a8cf4eb` | daemon + thin client | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,894 (82,151) | 100% / 92% / 96% |
+| 25 | `2368492` | `a8cf4eb` | rename to tesselate (#70) | 100.0% | 100.0% | 100.0% | 86.1% | 0 | 1 | 31,895 (82,151) | 100% / 92% / 96% |
 
-Latest run (`561be67`) by connection type. *seen*: strata recorded a connection at that spot; *right*: and its targets include the correct definition.
+Latest run (`2368492`) by connection type. *seen*: tesselate recorded a connection at that spot; *right*: and its targets include the correct definition.
 
 | Connection | Total | Seen | Right | Exact |
 | --- | ---: | ---: | ---: | ---: |
@@ -111,9 +113,9 @@ Latest run (`561be67`) by connection type. *seen*: strata recorded a connection 
 | definition: variant | 43 | 100.0% | – |
 
 
-Other commits of the corpus (code strata was never fixed against; not part of the series above):
+Other commits of the corpus (code tesselate was never fixed against; not part of the series above):
 
-| strata | corpus | Definitions | References seen | References right | Calls right | Unresolved |
+| tesselate | corpus | Definitions | References seen | References right | Calls right | Unresolved |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | `8918708` | `13cb233` | 100.0% | 100.0% | 99.9% | 99.9% | 2 |
 

@@ -1,0 +1,26 @@
+[package]
+name = "tesselate-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "tesselate"
+path = "src/main.rs"
+
+# The short alias: the same program under a name that is quick to type.
+[[bin]]
+name = "tssl"
+path = "src/main.rs"
+
+[dependencies]
+tesselate-core = { path = "../tesselate-core" }
+tesselate-config = { path = "../tesselate-config" }
+tesselate-agent = { path = "../tesselate-agent" }
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+notify = "6"
+
+[dev-dependencies]
+tempfile = "3"
+serde_json = "1"

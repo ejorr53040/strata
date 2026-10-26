@@ -1,8 +1,0 @@
-[package]
-name = "strata-config"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[dependencies]
-toml = "0.8"

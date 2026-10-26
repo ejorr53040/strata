@@ -1,4 +1,4 @@
-# strata
+# tesselate
 
 Code intelligence for a repository: an index of symbols and the edges between them, served by a per-repo daemon to a CLI.
 
