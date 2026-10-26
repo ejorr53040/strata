@@ -97,9 +97,12 @@ impl Events {
                     self.synced.lock().unwrap().insert(n);
                     self.arrived.notify_all();
                 }
+            } else if p == dir {
+                // Writing a sentinel touches the directory itself.
             } else if let Ok(rel) = p.strip_prefix(root) {
-                // ponytail: build output and git internals are skipped by name; the walker's
-                // own ignore rules would be exact.
+                // ponytail: git internals and `target` (cargo output, which the walker also
+                // skips at any depth) are skipped by name; the walker's own ignore rules
+                // would be exact, and an `index.include` under `target` is missed.
                 let noise = rel
                     .components()
                     .any(|c| matches!(c.as_os_str().to_str(), Some(".git" | "target")));
@@ -107,6 +110,10 @@ impl Events {
                     let counter = if lose { &self.lost } else { &self.changes };
                     counter.fetch_add(1, Ordering::SeqCst);
                 }
+            } else {
+                // Neither in the repo nor the socket directory: the watcher is reporting
+                // something we cannot place, so stop trusting "no change".
+                self.lost.fetch_add(1, Ordering::SeqCst);
             }
         }
     }
@@ -285,13 +292,17 @@ impl Daemon {
     /// watcher event since, or (with no watcher) no indexed file with a different size or mtime.
     fn is_current(&self, snap: &Snapshot, built_at: Seen, seen: Seen) -> bool {
         match &self.watch {
-            Some(_) => built_at == seen,
+            // The counters only grow, so a snapshot built at or after `seen` is current: a
+            // slower concurrent query must not rebuild over a newer one.
+            Some(_) => built_at.0 >= seen.0 && built_at.1 >= seen.1,
             None => !snap.is_stale(),
         }
     }
 
     /// The snapshot for `include`, brought up to date if the repo changed since it was built.
     fn snapshot(&self, include: &str) -> Arc<Snapshot> {
+        // ponytail: every query, cache hit or not, writes and removes one sentinel file to
+        // wait out in-flight watcher events; cheap on tmpfs, so no batching yet.
         // Read before anything is built, so an edit landing mid-build is seen next time.
         let seen = self.watch.as_ref().map_or((0, 0), Watch::sync);
         let cached = self
@@ -316,7 +327,7 @@ impl Daemon {
         let opts = WalkOptions::from_config_value(include);
         let s = Arc::new(match prev {
             // Lost events: nothing says which files changed, so start over.
-            Some((p, built_at)) if built_at.1 == seen.1 => p.update(&self.root, &opts),
+            Some((p, built_at)) if seen.1 <= built_at.1 => p.update(&self.root, &opts),
             Some((p, _)) => p.rebuild(&self.root, &opts),
             None => Snapshot::build(&self.root, &opts),
         });
